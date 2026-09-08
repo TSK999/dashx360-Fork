@@ -75,7 +75,15 @@ public sealed class JsonGameLibraryService : IGameLibraryService
 		return null;
 	}
 
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions ReadOptions = CreateReadOptions();
+
+    private static JsonSerializerOptions CreateReadOptions()
+    {
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        options.Converters.Add(new FlexibleTimeSpanJsonConverter());
+        return options;
+    }
+
     public Task<IReadOnlyList<GameMetadata>> ScanFolderAsync(string folderPath, CancellationToken cancellationToken = default, IProgress<LibraryScanProgress>? progress = null) => Task.Run<IReadOnlyList<GameMetadata>>(() =>
     {
         var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "UnityCrashHandler64", "UnityCrashHandler32", "CrashReportClient", "unins000", "uninstall" };
