@@ -1,0 +1,198 @@
+<Window x:Class="XboxMetroLauncher.Views.FirstRunSetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DashX360 Setup"
+        Width="1280" Height="720"
+        MinWidth="960" MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        Background="#FFF1F1F1"
+        KeyDown="Window_OnKeyDown">
+    <Window.Resources>
+        <SolidColorBrush x:Key="XboxGreen" Color="#FF77B900" />
+        <SolidColorBrush x:Key="XboxDarkGreen" Color="#FF4E7C00" />
+        <Style x:Key="SetupButton" TargetType="Button">
+            <Setter Property="Height" Value="52" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="18,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="Light" />
+            <Setter Property="Foreground" Value="#FF222222" />
+            <Setter Property="Background" Value="#FFFFFFFF" />
+            <Setter Property="BorderBrush" Value="#FFD0D0D0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource XboxGreen}" />
+                    <Setter Property="Foreground" Value="White" />
+                    <Setter Property="BorderBrush" Value="{StaticResource XboxDarkGreen}" />
+                </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="Background" Value="{StaticResource XboxGreen}" />
+                    <Setter Property="Foreground" Value="White" />
+                    <Setter Property="BorderBrush" Value="White" />
+                    <Setter Property="BorderThickness" Value="3" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Height" Value="52" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="#FF222222" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#FFD0D0D0" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource XboxGreen}" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                    <Setter Property="Background" Value="{StaticResource XboxGreen}" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="92" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="78" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#FFF7F7F7" BorderBrush="#FFD8D8D8" BorderThickness="0,0,0,1">
+            <Grid Margin="72,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="XBOX 360" FontSize="27" FontWeight="Light" Foreground="#FF555555" />
+                    <TextBlock x:Name="StepLabel" Text="Initial Setup" FontSize="16" Foreground="#FF858585" />
+                </StackPanel>
+                <Border Grid.Column="1" Width="54" Height="54" CornerRadius="27" Background="{StaticResource XboxGreen}" VerticalAlignment="Center">
+                    <TextBlock Text="X" Foreground="White" FontWeight="Bold" FontSize="26" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="72,38,72,30">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="390" />
+                <ColumnDefinition Width="42" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#FFE7E7E7" Padding="30" BorderBrush="#FFD0D0D0" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock x:Name="SectionTitle" Text="Welcome" FontSize="42" FontWeight="Light" Foreground="#FF333333" TextWrapping="Wrap" />
+                    <Rectangle Height="5" Fill="{StaticResource XboxGreen}" Margin="0,18,0,24" />
+                    <TextBlock x:Name="SectionDescription" Text="Set up your dashboard." FontSize="20" FontWeight="Light" LineHeight="30" Foreground="#FF555555" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Column="2">
+                <Grid x:Name="WelcomePanel">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Welcome to DashX360" FontSize="48" FontWeight="Light" Foreground="#FF333333" />
+                        <TextBlock Text="We'll get your dashboard ready in a few quick steps." FontSize="24" FontWeight="Light" Foreground="#FF666666" Margin="0,16,0,38" />
+                        <Button x:Name="BeginButton" Content="begin setup" Style="{StaticResource SetupButton}" Click="BeginButton_OnClick" Width="360" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="LanguagePanel" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="Choose your language" FontSize="38" FontWeight="Light" Foreground="#FF333333" Margin="0,0,0,20" />
+                        <ListBox x:Name="LanguageList" Width="520" HorizontalAlignment="Left" SelectedIndex="0">
+                            <ListBoxItem Content="English" />
+                            <ListBoxItem Content="Deutsch" />
+                            <ListBoxItem Content="Español" />
+                            <ListBoxItem Content="Français" />
+                            <ListBoxItem Content="Italiano" />
+                            <ListBoxItem Content="Português" />
+                        </ListBox>
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="LocalePanel" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="Choose your location" FontSize="38" FontWeight="Light" Foreground="#FF333333" Margin="0,0,0,20" />
+                        <ListBox x:Name="LocaleList" Width="520" HorizontalAlignment="Left" SelectedIndex="0">
+                            <ListBoxItem Content="United States" />
+                            <ListBoxItem Content="United Kingdom" />
+                            <ListBoxItem Content="Sweden" />
+                            <ListBoxItem Content="Germany" />
+                            <ListBoxItem Content="France" />
+                            <ListBoxItem Content="Canada" />
+                            <ListBoxItem Content="Australia" />
+                        </ListBox>
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="ProfilePanel" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Create your profile" FontSize="38" FontWeight="Light" Foreground="#FF333333" />
+                        <TextBlock Text="Enter the gamertag shown throughout your dashboard." FontSize="20" Foreground="#FF666666" Margin="0,12,0,22" />
+                        <TextBox x:Name="GamertagBox" Text="Player" Width="520" Height="58" HorizontalAlignment="Left" FontSize="25" Padding="14,8" MaxLength="15" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="SystemPanel" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="System check" FontSize="38" FontWeight="Light" Foreground="#FF333333" />
+                        <Border Background="White" BorderBrush="#FFD0D0D0" BorderThickness="1" Width="580" HorizontalAlignment="Left" Margin="0,24,0,12" Padding="22">
+                            <StackPanel>
+                                <TextBlock Text="Display" FontSize="18" Foreground="#FF777777" />
+                                <TextBlock x:Name="DisplayValue" FontSize="27" Foreground="#FF222222" Margin="0,3,0,18" />
+                                <TextBlock Text="Connection" FontSize="18" Foreground="#FF777777" />
+                                <TextBlock x:Name="NetworkValue" FontSize="27" Foreground="#FF222222" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="DashX360 uses your Windows display and network settings." FontSize="18" Foreground="#FF777777" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="SteamPanel" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Find your games" FontSize="38" FontWeight="Light" Foreground="#FF333333" />
+                        <TextBlock Text="DashX360 can find installed Steam games and add them to My Games." FontSize="21" Foreground="#FF666666" TextWrapping="Wrap" Width="680" HorizontalAlignment="Left" Margin="0,12,0,24" />
+                        <Button x:Name="ImportSteamButton" Content="scan Steam library" Style="{StaticResource SetupButton}" Width="420" HorizontalAlignment="Left" Click="ImportSteamButton_OnClick" />
+                        <Button x:Name="SkipSteamButton" Content="skip for now" Style="{StaticResource SetupButton}" Width="420" HorizontalAlignment="Left" Click="SkipSteamButton_OnClick" />
+                        <ProgressBar x:Name="SteamProgress" Width="620" Height="12" HorizontalAlignment="Left" Margin="0,18,0,8" IsIndeterminate="True" Visibility="Collapsed" Foreground="{StaticResource XboxGreen}" />
+                        <TextBlock x:Name="SteamStatus" Width="680" HorizontalAlignment="Left" FontSize="18" Foreground="#FF666666" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="ReadyPanel" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="You're ready" FontSize="52" FontWeight="Light" Foreground="#FF333333" />
+                        <TextBlock x:Name="ReadySummary" FontSize="22" FontWeight="Light" Foreground="#FF666666" TextWrapping="Wrap" Width="680" HorizontalAlignment="Left" Margin="0,18,0,34" />
+                        <Button x:Name="FinishButton" Content="go to dashboard" Style="{StaticResource SetupButton}" Width="420" HorizontalAlignment="Left" Click="FinishButton_OnClick" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="2" Background="#FF202020">
+            <Grid Margin="72,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="28" Height="28" CornerRadius="14" Background="{StaticResource XboxGreen}" Margin="0,0,9,0">
+                        <TextBlock Text="A" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock x:Name="AcceptHint" Text="Select" Foreground="White" FontSize="18" VerticalAlignment="Center" Margin="0,0,28,0" />
+                    <Border x:Name="BackBadge" Width="28" Height="28" CornerRadius="14" Background="#FFE24A42" Margin="0,0,9,0">
+                        <TextBlock Text="B" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock x:Name="BackHint" Text="Back" Foreground="White" FontSize="18" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="DashX360" Foreground="#FFBDBDBD" FontSize="17" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
