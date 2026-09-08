@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,7 +7,9 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using XboxMetroLauncher.Services;
 using XboxMetroLauncher.Utilities;
+using XboxMetroLauncher.Views;
 
 namespace XboxMetroLauncher;
 
@@ -15,6 +18,7 @@ public partial class App : Application
     private Mutex? _instanceMutex;
     private bool _ownsMutex;
     private FileStream? _dataLease;
+
 	protected override void OnStartup(StartupEventArgs e)
 	{
 		DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -40,7 +44,31 @@ public partial class App : Application
             DataTransaction.Recover(root);
             AppPaths.MigrateMutableAssets();
             base.OnStartup(e);
+
+            var store = new JsonStore(root);
+            var setupService = new FirstRunSetupService(store);
+            bool forceSetup = e.Args.Any(arg => string.Equals(arg, "--setup", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(arg, "--first-run", StringComparison.OrdinalIgnoreCase));
+
+            if (forceSetup || !setupService.IsCompleted())
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var setupWindow = new FirstRunSetupWindow(
+                    setupService,
+                    new JsonGameLibraryService(store),
+                    new SteamLibraryScannerService(),
+                    new ProfileService(store));
+
+                bool? result = setupWindow.ShowDialog();
+                if (result != true)
+                {
+                    Shutdown();
+                    return;
+                }
+            }
+
             MainWindow = new MainWindow();
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow.Show();
         }
         catch (Exception ex)
