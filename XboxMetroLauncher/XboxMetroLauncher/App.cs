@@ -52,6 +52,7 @@ public partial class App : Application
             // animation, scaling and input stack stay active for the whole launch.
             var mainWindow = new MainWindow();
             mainWindow.InstallFirstRunVisualRefresh();
+            mainWindow.InstallFirstRunToplessShellMode();
             MainWindow = mainWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow.Show();
