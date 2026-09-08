@@ -197,8 +197,7 @@ public partial class MainWindow
             Text = "DASHX360",
             Foreground = new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)),
             FontSize = 17,
-            FontWeight = FontWeights.SemiBold,
-            CharacterSpacing = 90
+            FontWeight = FontWeights.SemiBold
         });
         _firstRunStepText = new TextBlock
         {
@@ -253,8 +252,7 @@ public partial class MainWindow
             Text = "WELCOME",
             Foreground = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255)),
             FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            CharacterSpacing = 80
+            FontWeight = FontWeights.SemiBold
         });
         _firstRunSectionTitle = new TextBlock
         {
