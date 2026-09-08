@@ -31,6 +31,8 @@ public partial class MainWindow
     private FirstRunSetupState _firstRunState = new();
 
     private Grid? _firstRunLayer;
+    private Grid? _firstRunFooterLayer;
+    private Grid? _firstRunHeaderBlocker;
     private Grid? _firstRunContentHost;
     private TextBlock? _firstRunStepText;
     private TextBlock? _firstRunSectionTitle;
@@ -81,8 +83,8 @@ public partial class MainWindow
                 return;
             }
 
-            // This launch uses the setup hand-off instead of the normal fake loading
-            // hand-off and sign-in toast. The boot video itself remains unchanged.
+            // Keep the real boot path, but reserve its hand-off for the setup page
+            // instead of the normal fake-loading/sign-in sequence on this launch.
             _fakeLoadingStarted = true;
             _signInToastSequenceActive = true;
 
@@ -91,7 +93,7 @@ public partial class MainWindow
             _firstRunProfileService = new ProfileService(store);
             _firstRunState = await _firstRunSetupService.LoadAsync(_firstRunLifetime.Token);
 
-            BuildFirstRunShell();
+            BuildFirstRunShellPage();
 
             _firstRunReadyTimer = new DispatcherTimer(DispatcherPriority.Loaded)
             {
@@ -118,159 +120,146 @@ public partial class MainWindow
         }
     }
 
-    private void BuildFirstRunShell()
+    private void BuildFirstRunShellPage()
     {
         if (_firstRunLayer != null)
         {
             return;
         }
 
-        Brush background = FindSetupBrush("DashboardBackgroundBrush", new SolidColorBrush(Color.FromRgb(74, 79, 81)));
         Brush green = FindSetupBrush("MetroGreenBrush", new SolidColorBrush(Color.FromRgb(2, 141, 2)));
-        Brush glass = FindSetupBrush("GlassPanelBrush", new SolidColorBrush(Color.FromArgb(150, 25, 28, 29)));
+        Brush glass = FindSetupBrush("GlassPanelBrush", new SolidColorBrush(Color.FromArgb(170, 25, 28, 29)));
 
+        // This layer lives in ContentFrame, not RootGrid: the dashboard's real tab
+        // strip, profile chrome and window remain visible around setup.
         var root = new Grid
         {
             Width = 1280,
-            Height = 720,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = background,
+            Height = 502,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = Brushes.Transparent,
             Visibility = Visibility.Collapsed,
             Opacity = 0
         };
         _firstRunLayer = root;
-        Panel.SetZIndex(root, 950);
+        Panel.SetZIndex(root, 900);
 
-        var glow = new Rectangle
+        root.Children.Add(new Rectangle
+        {
+            Fill = new LinearGradientBrush(
+                Color.FromArgb(238, 48, 53, 55),
+                Color.FromArgb(244, 93, 98, 99),
+                new Point(0, 0),
+                new Point(0, 1))
+        });
+        root.Children.Add(new Rectangle
         {
             IsHitTestVisible = false,
             Fill = new RadialGradientBrush
             {
-                Center = new Point(0.2, 0.18),
-                GradientOrigin = new Point(0.2, 0.18),
-                RadiusX = 0.82,
-                RadiusY = 0.72,
+                Center = new Point(0.18, 0.12),
+                GradientOrigin = new Point(0.18, 0.12),
+                RadiusX = 0.8,
+                RadiusY = 0.9,
                 GradientStops = new GradientStopCollection
                 {
-                    new GradientStop(Color.FromArgb(92, 255, 255, 255), 0),
-                    new GradientStop(Color.FromArgb(24, 255, 255, 255), 0.48),
+                    new GradientStop(Color.FromArgb(75, 255, 255, 255), 0),
+                    new GradientStop(Color.FromArgb(20, 255, 255, 255), 0.48),
                     new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
                 }
             }
-        };
-        root.Children.Add(glow);
+        });
 
-        var stripeCanvas = new Canvas { IsHitTestVisible = false, Opacity = 0.9 };
+        var stripeCanvas = new Canvas { IsHitTestVisible = false, Opacity = 0.8 };
         for (int i = 0; i < 4; i++)
         {
             var stripe = new Rectangle
             {
-                Width = 54,
-                Height = 360,
+                Width = 44,
+                Height = 255,
                 Fill = i == 2 ? new SolidColorBrush(Color.FromRgb(166, 218, 0)) : green,
-                Opacity = 0.72 - (i * 0.08),
+                Opacity = 0.68 - (i * 0.08),
                 RenderTransform = new SkewTransform(-18, 0),
                 RenderTransformOrigin = new Point(0.5, 0.5)
             };
-            Canvas.SetLeft(stripe, 1030 + (i * 42));
-            Canvas.SetTop(stripe, -155);
+            Canvas.SetLeft(stripe, 1070 + (i * 35));
+            Canvas.SetTop(stripe, -122);
             stripeCanvas.Children.Add(stripe);
         }
         root.Children.Add(stripeCanvas);
 
-        var layout = new Grid();
-        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(112) });
-        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(74) });
-        root.Children.Add(layout);
-
-        var header = new Grid { Margin = new Thickness(76, 32, 76, 0) };
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetRow(header, 0);
-        layout.Children.Add(header);
-
-        var headerText = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
-        headerText.Children.Add(new TextBlock
-        {
-            Text = "DASHX360",
-            Foreground = new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)),
-            FontSize = 17,
-            FontWeight = FontWeights.SemiBold
-        });
         _firstRunStepText = new TextBlock
         {
             Text = "initial setup",
             Foreground = Brushes.White,
-            FontSize = 35,
+            FontSize = 28,
             FontWeight = FontWeights.Light,
-            Margin = new Thickness(0, 3, 0, 0)
+            Margin = new Thickness(76, 18, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
         };
-        headerText.Children.Add(_firstRunStepText);
-        header.Children.Add(headerText);
+        root.Children.Add(_firstRunStepText);
 
         var progressWrap = new StackPanel
         {
             Orientation = Orientation.Vertical,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 10, 0, 0)
+            Margin = new Thickness(0, 20, 78, 0)
         };
         progressWrap.Children.Add(new TextBlock
         {
             Text = "SETUP PROGRESS",
-            Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
-            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255)),
+            FontSize = 11,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 0, 0, 8)
+            Margin = new Thickness(0, 0, 0, 7)
         });
         _firstRunProgressSegments = new StackPanel { Orientation = Orientation.Horizontal };
         progressWrap.Children.Add(_firstRunProgressSegments);
-        Grid.SetColumn(progressWrap, 1);
-        header.Children.Add(progressWrap);
+        root.Children.Add(progressWrap);
 
-        var main = new Grid { Margin = new Thickness(76, 18, 76, 28) };
-        main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(350) });
-        main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        var main = new Grid { Margin = new Thickness(76, 60, 76, 24) };
+        main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+        main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(main, 1);
-        layout.Children.Add(main);
+        root.Children.Add(main);
 
         var infoBorder = new Border
         {
             Background = glass,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(75, 255, 255, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(30, 30, 30, 26),
+            Padding = new Thickness(27, 25, 27, 22),
             CornerRadius = new CornerRadius(2),
-            Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 3, Opacity = 0.22 }
+            Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Opacity = 0.2 }
         };
         var infoStack = new StackPanel();
         infoStack.Children.Add(new TextBlock
         {
-            Text = "WELCOME",
-            Foreground = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255)),
-            FontSize = 13,
+            Text = "FIRST START",
+            Foreground = new SolidColorBrush(Color.FromArgb(175, 255, 255, 255)),
+            FontSize = 12,
             FontWeight = FontWeights.SemiBold
         });
         _firstRunSectionTitle = new TextBlock
         {
             Text = "Welcome",
             Foreground = Brushes.White,
-            FontSize = 43,
+            FontSize = 38,
             FontWeight = FontWeights.Light,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 10, 0, 18)
+            Margin = new Thickness(0, 8, 0, 14)
         };
         infoStack.Children.Add(_firstRunSectionTitle);
-        infoStack.Children.Add(new Rectangle { Height = 5, Fill = green, Margin = new Thickness(0, 0, 0, 22) });
+        infoStack.Children.Add(new Rectangle { Height = 5, Fill = green, Margin = new Thickness(0, 0, 0, 18) });
         _firstRunSectionDescription = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromArgb(225, 255, 255, 255)),
-            FontSize = 19,
+            Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
+            FontSize = 17,
             FontWeight = FontWeights.Light,
-            LineHeight = 29,
+            LineHeight = 25,
             TextWrapping = TextWrapping.Wrap
         };
         infoStack.Children.Add(_firstRunSectionDescription);
@@ -282,7 +271,7 @@ public partial class MainWindow
             Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)),
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(40, 28, 40, 28),
+            Padding = new Thickness(36, 22, 36, 22),
             CornerRadius = new CornerRadius(2)
         };
         _firstRunContentHost = new Grid { ClipToBounds = true };
@@ -290,30 +279,43 @@ public partial class MainWindow
         Grid.SetColumn(contentBorder, 2);
         main.Children.Add(contentBorder);
 
-        var footer = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(225, 16, 18, 18)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
-            BorderThickness = new Thickness(0, 1, 0, 0)
-        };
-        Grid.SetRow(footer, 2);
-        layout.Children.Add(footer);
+        ContentFrame.Children.Add(root);
 
-        var footerGrid = new Grid { Margin = new Thickness(76, 0, 76, 0) };
+        // Keep the shell's tab/header chrome visible but prevent it receiving clicks.
+        _firstRunHeaderBlocker = new Grid
+        {
+            Background = Brushes.Transparent,
+            Visibility = Visibility.Collapsed,
+            Focusable = false
+        };
+        Grid.SetRow(_firstRunHeaderBlocker, 0);
+        Panel.SetZIndex(_firstRunHeaderBlocker, 900);
+        DashboardContentHost.Children.Add(_firstRunHeaderBlocker);
+
+        // Replace the normal A Select / Y Eject strip while setup is active.
+        _firstRunFooterLayer = new Grid
+        {
+            Background = new SolidColorBrush(Color.FromArgb(232, 17, 19, 19)),
+            Visibility = Visibility.Collapsed,
+            Opacity = 0
+        };
+        Grid.SetRow(_firstRunFooterLayer, 2);
+        Panel.SetZIndex(_firstRunFooterLayer, 900);
+
+        var footerGrid = new Grid { Margin = new Thickness(112, 0, 96, 0) };
         footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        footer.Child = footerGrid;
+        _firstRunFooterLayer.Children.Add(footerGrid);
 
         var hints = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var acceptBadge = CreatePromptBadge("A", green);
-        hints.Children.Add(acceptBadge);
+        hints.Children.Add(CreatePromptBadge("A", green));
         _firstRunAcceptHint = new TextBlock
         {
             Text = "Select",
             Foreground = Brushes.White,
-            FontSize = 18,
+            FontSize = 15,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(9, 0, 28, 0)
+            Margin = new Thickness(7, 0, 24, 0)
         };
         hints.Children.Add(_firstRunAcceptHint);
         _firstRunBackBadge = CreatePromptBadge("B", new SolidColorBrush(Color.FromRgb(210, 58, 50)));
@@ -322,9 +324,9 @@ public partial class MainWindow
         {
             Text = "Back",
             Foreground = Brushes.White,
-            FontSize = 18,
+            FontSize = 15,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(9, 0, 0, 0)
+            Margin = new Thickness(7, 0, 0, 0)
         };
         hints.Children.Add(_firstRunBackHint);
         footerGrid.Children.Add(hints);
@@ -335,32 +337,37 @@ public partial class MainWindow
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
         };
-        shellLabel.Children.Add(new Ellipse { Width = 12, Height = 12, Fill = green, Margin = new Thickness(0, 0, 8, 0) });
+        shellLabel.Children.Add(new Ellipse { Width = 10, Height = 10, Fill = green, Margin = new Thickness(0, 0, 7, 0) });
         shellLabel.Children.Add(new TextBlock
         {
-            Text = "dashboard setup",
-            Foreground = new SolidColorBrush(Color.FromArgb(165, 255, 255, 255)),
-            FontSize = 16,
+            Text = "initial setup",
+            Foreground = new SolidColorBrush(Color.FromArgb(160, 255, 255, 255)),
+            FontSize = 14,
             FontWeight = FontWeights.Light
         });
         Grid.SetColumn(shellLabel, 1);
         footerGrid.Children.Add(shellLabel);
 
-        RootGrid.Children.Add(root);
+        DashboardContentHost.Children.Add(_firstRunFooterLayer);
         UpdateFirstRunProgress();
     }
 
     private void ShowFirstRunSetup()
     {
-        if (_firstRunLayer == null || _firstRunSetupActive)
+        if (_firstRunLayer == null || _firstRunFooterLayer == null || _firstRunHeaderBlocker == null || _firstRunSetupActive)
         {
             return;
         }
 
         _firstRunSetupActive = true;
         _isMenuFakeLoadingActive = true;
+        ContentHost.IsHitTestVisible = false;
+        ContentHost.Opacity = 0.12;
+
+        _firstRunHeaderBlocker.Visibility = Visibility.Visible;
         _firstRunLayer.Visibility = Visibility.Visible;
         _firstRunLayer.IsHitTestVisible = true;
+        _firstRunFooterLayer.Visibility = Visibility.Visible;
 
         AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(FirstRunPreviewKeyDown), true);
 
@@ -370,11 +377,9 @@ public partial class MainWindow
         _firstRunController.Start();
 
         RenderFirstRunStep(0, 1);
-        _firstRunLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(320))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        });
-
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        _firstRunLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300)) { EasingFunction = easing });
+        _firstRunFooterLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = easing });
         _ = RefocusFirstRunAsync();
     }
 
@@ -403,14 +408,14 @@ public partial class MainWindow
         _firstRunPreferredFocus = null;
 
         var panel = new Grid { Opacity = 0 };
-        panel.RenderTransform = new TranslateTransform(direction >= 0 ? 44 : -44, 0);
+        panel.RenderTransform = new TranslateTransform(direction >= 0 ? 38 : -38, 0);
         _firstRunContentHost.Children.Clear();
         _firstRunContentHost.Children.Add(panel);
 
         switch (_firstRunStep)
         {
             case 0:
-                SetFirstRunHeading("initial setup", "Welcome", "Your dashboard is already running. Before Home unlocks, choose a few essentials and optionally bring in your Steam library.");
+                SetFirstRunHeading("initial setup", "Welcome", "Before Home unlocks, choose a few essentials and optionally bring in your Steam library. The dashboard shell stays with you the whole time.");
                 panel.Children.Add(BuildWelcomeStep());
                 break;
             case 1:
@@ -434,7 +439,7 @@ public partial class MainWindow
                 panel.Children.Add(BuildSteamStep());
                 break;
             default:
-                SetFirstRunHeading("6 of 6  ·  complete", "You're ready", "Setup is saved. One last press and this setup layer gives the shell back to your normal Home dashboard.");
+                SetFirstRunHeading("6 of 6  ·  complete", "You're ready", "Setup is saved. One last press and this page slides away to reveal the Home dashboard already underneath it.");
                 panel.Children.Add(BuildReadyStep());
                 break;
         }
@@ -444,34 +449,34 @@ public partial class MainWindow
 
         var transform = (TranslateTransform)panel.RenderTransform;
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
-        panel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(210)) { EasingFunction = easing });
-        transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(transform.X, 0, TimeSpan.FromMilliseconds(245)) { EasingFunction = easing });
+        panel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(190)) { EasingFunction = easing });
+        transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(transform.X, 0, TimeSpan.FromMilliseconds(225)) { EasingFunction = easing });
 
         _firstRunPreferredFocus?.Focus();
     }
 
     private UIElement BuildWelcomeStep()
     {
-        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
         stack.Children.Add(new TextBlock
         {
             Text = "Welcome to DashX360",
             Foreground = Brushes.White,
-            FontSize = 50,
+            FontSize = 42,
             FontWeight = FontWeights.Light,
             TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(new TextBlock
         {
-            Text = "A quick first-start pass, built directly into the dashboard shell.",
+            Text = "Your first-start setup is part of the dashboard now — no separate setup window.",
             Foreground = new SolidColorBrush(Color.FromArgb(205, 255, 255, 255)),
-            FontSize = 22,
+            FontSize = 19,
             FontWeight = FontWeights.Light,
-            Margin = new Thickness(0, 13, 0, 34),
+            Margin = new Thickness(0, 10, 0, 26),
             TextWrapping = TextWrapping.Wrap
         });
         var begin = CreateSetupButton("begin setup", true);
-        begin.Width = 390;
+        begin.Width = 360;
         begin.Click += async (_, _) => await GoFirstRunNextAsync();
         stack.Children.Add(begin);
         _firstRunPreferredFocus = begin;
@@ -485,16 +490,16 @@ public partial class MainWindow
         {
             Text = heading,
             Foreground = Brushes.White,
-            FontSize = 34,
+            FontSize = 29,
             FontWeight = FontWeights.Light,
-            Margin = new Thickness(0, 0, 0, 18)
+            Margin = new Thickness(0, 0, 0, 12)
         });
 
         foreach (string value in values)
         {
             bool isSelected = string.Equals(value, selected, StringComparison.OrdinalIgnoreCase);
             Button button = CreateSetupButton(value, isSelected);
-            button.Width = 560;
+            button.Width = 520;
             button.Tag = value;
             button.Click += async (_, _) =>
             {
@@ -519,26 +524,26 @@ public partial class MainWindow
         {
             Text = "create your local profile",
             Foreground = Brushes.White,
-            FontSize = 34,
+            FontSize = 29,
             FontWeight = FontWeights.Light
         });
         stack.Children.Add(new TextBlock
         {
             Text = "Gamertag",
             Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
-            FontSize = 15,
-            Margin = new Thickness(0, 28, 0, 8)
+            FontSize = 14,
+            Margin = new Thickness(0, 22, 0, 7)
         });
 
         _firstRunGamertagBox = new TextBox
         {
             Text = string.IsNullOrWhiteSpace(_firstRunState.Gamertag) ? "Player" : _firstRunState.Gamertag,
-            Width = 560,
-            Height = 60,
+            Width = 520,
+            Height = 56,
             HorizontalAlignment = HorizontalAlignment.Left,
-            FontSize = 27,
+            FontSize = 24,
             FontWeight = FontWeights.Light,
-            Padding = new Thickness(16, 8, 16, 8),
+            Padding = new Thickness(14, 7, 14, 7),
             MaxLength = 15,
             Background = new SolidColorBrush(Color.FromArgb(238, 255, 255, 255)),
             Foreground = new SolidColorBrush(Color.FromRgb(35, 38, 39)),
@@ -548,8 +553,8 @@ public partial class MainWindow
         stack.Children.Add(_firstRunGamertagBox);
 
         var next = CreateSetupButton("continue", true);
-        next.Width = 300;
-        next.Margin = new Thickness(0, 24, 0, 0);
+        next.Width = 280;
+        next.Margin = new Thickness(0, 18, 0, 0);
         next.Click += async (_, _) => await GoFirstRunNextAsync();
         stack.Children.Add(next);
         _firstRunPreferredFocus = _firstRunGamertagBox;
@@ -563,31 +568,31 @@ public partial class MainWindow
         {
             Text = "system check",
             Foreground = Brushes.White,
-            FontSize = 34,
+            FontSize = 29,
             FontWeight = FontWeights.Light,
-            Margin = new Thickness(0, 0, 0, 20)
+            Margin = new Thickness(0, 0, 0, 14)
         });
 
         var card = new Border
         {
-            Width = 590,
+            Width = 550,
             HorizontalAlignment = HorizontalAlignment.Left,
             Background = new SolidColorBrush(Color.FromArgb(218, 255, 255, 255)),
-            Padding = new Thickness(24),
+            Padding = new Thickness(20),
             BorderBrush = new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)),
             BorderThickness = new Thickness(1)
         };
         var details = new StackPanel();
         details.Children.Add(CreateSystemLabel("DISPLAY"));
         details.Children.Add(CreateSystemValue($"{Math.Round(SystemParameters.PrimaryScreenWidth)} × {Math.Round(SystemParameters.PrimaryScreenHeight)}"));
-        details.Children.Add(CreateSystemLabel("NETWORK", new Thickness(0, 18, 0, 3)));
+        details.Children.Add(CreateSystemLabel("NETWORK", new Thickness(0, 13, 0, 3)));
         details.Children.Add(CreateSystemValue(NetworkInterface.GetIsNetworkAvailable() ? "Connected" : "Not connected"));
         card.Child = details;
         stack.Children.Add(card);
 
         var next = CreateSetupButton("looks good", true);
-        next.Width = 300;
-        next.Margin = new Thickness(0, 22, 0, 0);
+        next.Width = 280;
+        next.Margin = new Thickness(0, 16, 0, 0);
         next.Click += async (_, _) => await GoFirstRunNextAsync();
         stack.Children.Add(next);
         _firstRunPreferredFocus = next;
@@ -601,27 +606,27 @@ public partial class MainWindow
         {
             Text = "find your games",
             Foreground = Brushes.White,
-            FontSize = 34,
+            FontSize = 29,
             FontWeight = FontWeights.Light
         });
         stack.Children.Add(new TextBlock
         {
-            Text = "Scan your installed Steam libraries and add detected titles to My Games.",
+            Text = "Scan installed Steam libraries and add detected titles to My Games.",
             Foreground = new SolidColorBrush(Color.FromArgb(205, 255, 255, 255)),
-            FontSize = 20,
+            FontSize = 17,
             TextWrapping = TextWrapping.Wrap,
-            Width = 620,
+            Width = 570,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 10, 0, 24)
+            Margin = new Thickness(0, 8, 0, 17)
         });
 
         _firstRunSteamScanButton = CreateSetupButton(_firstRunSteamScanCompleted ? "scan again" : "scan Steam library", true);
-        _firstRunSteamScanButton.Width = 430;
+        _firstRunSteamScanButton.Width = 390;
         _firstRunSteamScanButton.Click += async (_, _) => await ScanSteamForFirstRunAsync();
         stack.Children.Add(_firstRunSteamScanButton);
 
         _firstRunSteamContinueButton = CreateSetupButton(_firstRunSteamScanCompleted ? "continue" : "skip for now", false);
-        _firstRunSteamContinueButton.Width = 430;
+        _firstRunSteamContinueButton.Width = 390;
         _firstRunSteamContinueButton.Click += async (_, _) =>
         {
             _firstRunState.ImportSteamLibrary = _firstRunSteamScanCompleted;
@@ -632,10 +637,10 @@ public partial class MainWindow
 
         _firstRunSteamProgress = new ProgressBar
         {
-            Width = 620,
-            Height = 9,
+            Width = 570,
+            Height = 8,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 18, 0, 8),
+            Margin = new Thickness(0, 10, 0, 6),
             IsIndeterminate = true,
             Visibility = Visibility.Collapsed,
             Foreground = FindSetupBrush("MetroGreenBrush", Brushes.Green)
@@ -648,9 +653,9 @@ public partial class MainWindow
                 ? (_firstRunSteamScanCompleted ? "Steam library checked and saved." : "You can run this later from Settings → Steam.")
                 : _firstRunSteamMessage,
             Foreground = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255)),
-            FontSize = 17,
+            FontSize = 15,
             TextWrapping = TextWrapping.Wrap,
-            Width = 620,
+            Width = 570,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         stack.Children.Add(_firstRunSteamStatus);
@@ -665,22 +670,22 @@ public partial class MainWindow
         {
             Text = "You're ready.",
             Foreground = Brushes.White,
-            FontSize = 52,
+            FontSize = 44,
             FontWeight = FontWeights.Light
         });
         stack.Children.Add(new TextBlock
         {
             Text = $"{NormalizeFirstRunGamertag(_firstRunState.Gamertag)}  ·  {_firstRunState.Locale}\n\n{(_firstRunSteamScanCompleted ? "Steam library checked." : "Steam scan skipped for now.")}",
             Foreground = new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)),
-            FontSize = 21,
+            FontSize = 19,
             FontWeight = FontWeights.Light,
             TextWrapping = TextWrapping.Wrap,
-            Width = 620,
+            Width = 570,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 16, 0, 32)
+            Margin = new Thickness(0, 13, 0, 24)
         });
         var finish = CreateSetupButton("enter dashboard", true);
-        finish.Width = 390;
+        finish.Width = 360;
         finish.Click += async (_, _) => await FinishFirstRunSetupAsync();
         stack.Children.Add(finish);
         _firstRunPreferredFocus = finish;
@@ -795,8 +800,8 @@ public partial class MainWindow
             _firstRunState.Completed = true;
             await _firstRunSetupService.SaveAsync(_firstRunState, _firstRunLifetime.Token);
 
-            // Refresh profile and library data before revealing Home so the first frame
-            // after setup already reflects the choices/import made here.
+            // Refresh profile and library before the page reveals Home so the shell's
+            // existing bindings immediately reflect setup choices and any Steam import.
             await _viewModel.InitializeAsync(reloadSettings: false);
             UpdateThemeBackgroundVisual(animate: false);
             UpdateBingBackgroundVisual(animate: false);
@@ -815,21 +820,29 @@ public partial class MainWindow
 
     private async Task HideFirstRunSetupAsync()
     {
-        if (_firstRunLayer == null)
+        if (_firstRunLayer == null || _firstRunFooterLayer == null || _firstRunHeaderBlocker == null)
         {
             return;
         }
 
         _audioService.Play("select");
-        var animation = new DoubleAnimation(_firstRunLayer.Opacity, 0, TimeSpan.FromMilliseconds(360))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
-        };
-        _firstRunLayer.BeginAnimation(OpacityProperty, animation);
-        await Task.Delay(380);
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var setupFade = new DoubleAnimation(_firstRunLayer.Opacity, 0, TimeSpan.FromMilliseconds(330)) { EasingFunction = easing };
+        var footerFade = new DoubleAnimation(_firstRunFooterLayer.Opacity, 0, TimeSpan.FromMilliseconds(250)) { EasingFunction = easing };
+        var homeFade = new DoubleAnimation(ContentHost.Opacity, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = easing };
+        _firstRunLayer.BeginAnimation(OpacityProperty, setupFade);
+        _firstRunFooterLayer.BeginAnimation(OpacityProperty, footerFade);
+        ContentHost.BeginAnimation(OpacityProperty, homeFade);
+        await Task.Delay(440);
 
         _firstRunLayer.Visibility = Visibility.Collapsed;
         _firstRunLayer.IsHitTestVisible = false;
+        _firstRunFooterLayer.Visibility = Visibility.Collapsed;
+        _firstRunHeaderBlocker.Visibility = Visibility.Collapsed;
+        ContentHost.BeginAnimation(OpacityProperty, null);
+        ContentHost.Opacity = 1;
+        ContentHost.IsHitTestVisible = true;
+
         _firstRunSetupActive = false;
         _firstRunBusy = false;
         _isMenuFakeLoadingActive = false;
@@ -952,9 +965,9 @@ public partial class MainWindow
         {
             _firstRunProgressSegments.Children.Add(new Border
             {
-                Width = 38,
-                Height = 6,
-                Margin = new Thickness(i == 1 ? 0 : 6, 0, 0, 0),
+                Width = 34,
+                Height = 5,
+                Margin = new Thickness(i == 1 ? 0 : 5, 0, 0, 0),
                 Background = i <= _firstRunStep ? green : new SolidColorBrush(Color.FromArgb(75, 255, 255, 255)),
                 CornerRadius = new CornerRadius(1)
             });
@@ -985,14 +998,14 @@ public partial class MainWindow
         var button = new Button
         {
             Content = text,
-            Height = 52,
-            Margin = new Thickness(0, 0, 0, 9),
-            Padding = new Thickness(18, 0, 18, 0),
+            Height = 45,
+            Margin = new Thickness(0, 0, 0, 7),
+            Padding = new Thickness(16, 0, 16, 0),
             HorizontalContentAlignment = HorizontalAlignment.Left,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left,
             FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 22,
+            FontSize = 19,
             FontWeight = FontWeights.Light,
             Background = primary ? green : new SolidColorBrush(Color.FromArgb(218, 255, 255, 255)),
             Foreground = primary ? Brushes.White : new SolidColorBrush(Color.FromRgb(32, 36, 38)),
@@ -1035,14 +1048,15 @@ public partial class MainWindow
     {
         return new Border
         {
-            Width = 28,
-            Height = 28,
-            CornerRadius = new CornerRadius(14),
+            Width = 22,
+            Height = 22,
+            CornerRadius = new CornerRadius(11),
             Background = background,
             Child = new TextBlock
             {
                 Text = text,
                 Foreground = Brushes.White,
+                FontSize = 12,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -1055,7 +1069,7 @@ public partial class MainWindow
         return new TextBlock
         {
             Text = text,
-            FontSize = 13,
+            FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(102, 108, 110)),
             Margin = margin ?? new Thickness(0, 0, 0, 3)
@@ -1067,7 +1081,7 @@ public partial class MainWindow
         return new TextBlock
         {
             Text = text,
-            FontSize = 27,
+            FontSize = 23,
             FontWeight = FontWeights.Light,
             Foreground = new SolidColorBrush(Color.FromRgb(30, 34, 36))
         };
