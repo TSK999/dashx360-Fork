@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using XboxMetroLauncher.Input;
 using XboxMetroLauncher.Models;
 using XboxMetroLauncher.Services;
 using XboxMetroLauncher.Utilities;
@@ -19,6 +22,7 @@ public partial class FirstRunSetupWindow : Window
     private readonly ISteamLibraryScannerService _steamScanner;
     private readonly IProfileService _profileService;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly ControllerInputService _controllerInput;
     private FirstRunSetupState _state = new();
     private int _step;
     private bool _steamScanCompleted;
@@ -35,8 +39,18 @@ public partial class FirstRunSetupWindow : Window
         _steamScanner = steamScanner;
         _profileService = profileService;
         InitializeComponent();
+
+        _controllerInput = new ControllerInputService(HandleControllerAction, () => IsVisible && !_busy);
         Loaded += OnLoaded;
-        Closed += (_, _) => _lifetime.Cancel();
+        Closed += (_, _) =>
+        {
+            _lifetime.Cancel();
+            _controllerInput.Dispose();
+        };
+
+        LanguageList.MouseDoubleClick += async (_, _) => await NextAsync();
+        LocaleList.MouseDoubleClick += async (_, _) => await NextAsync();
+        SystemPanel.MouseLeftButtonUp += async (_, _) => await NextAsync();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -47,6 +61,7 @@ public partial class FirstRunSetupWindow : Window
             ApplyStateToControls();
             ShowStep(0);
             BeginButton.Focus();
+            _controllerInput.Start();
         }
         catch (OperationCanceledException)
         {
@@ -56,6 +71,7 @@ public partial class FirstRunSetupWindow : Window
             App.LogException(ex, "FirstRunSetup.Load");
             _state = new FirstRunSetupState();
             ShowStep(0);
+            _controllerInput.Start();
         }
     }
 
@@ -104,6 +120,7 @@ public partial class FirstRunSetupWindow : Window
             _ => "Next"
         };
 
+        UIElement visiblePanel = WelcomePanel;
         switch (_step)
         {
             case 0:
@@ -111,18 +128,21 @@ public partial class FirstRunSetupWindow : Window
                 SectionTitle.Text = "Welcome";
                 SectionDescription.Text = "Before you enter the dashboard, choose the same essentials an Xbox 360 asks for on first startup — then we'll find your PC games.";
                 BeginButton.Focus();
+                visiblePanel = WelcomePanel;
                 break;
             case 1:
                 StepLabel.Text = "1 of 6 · Language";
                 SectionTitle.Text = "Language";
                 SectionDescription.Text = "Choose the language you want to use on the dashboard.";
                 LanguageList.Focus();
+                visiblePanel = LanguagePanel;
                 break;
             case 2:
                 StepLabel.Text = "2 of 6 · Locale";
                 SectionTitle.Text = "Locale";
                 SectionDescription.Text = "Your location is used for profile defaults and regional presentation.";
                 LocaleList.Focus();
+                visiblePanel = LocalePanel;
                 break;
             case 3:
                 StepLabel.Text = "3 of 6 · Profile";
@@ -130,6 +150,7 @@ public partial class FirstRunSetupWindow : Window
                 SectionDescription.Text = "Create the local profile that appears in the Guide and dashboard header.";
                 GamertagBox.Focus();
                 GamertagBox.SelectAll();
+                visiblePanel = ProfilePanel;
                 break;
             case 4:
                 StepLabel.Text = "4 of 6 · System";
@@ -137,6 +158,8 @@ public partial class FirstRunSetupWindow : Window
                 SectionDescription.Text = "DashX360 uses your Windows display, sound and network configuration rather than replacing those settings.";
                 DisplayValue.Text = $"{Math.Round(SystemParameters.PrimaryScreenWidth)} × {Math.Round(SystemParameters.PrimaryScreenHeight)}";
                 NetworkValue.Text = NetworkInterface.GetIsNetworkAvailable() ? "Connected" : "Not connected";
+                SystemPanel.Focus();
+                visiblePanel = SystemPanel;
                 break;
             case 5:
                 StepLabel.Text = "5 of 6 · Games";
@@ -146,6 +169,7 @@ public partial class FirstRunSetupWindow : Window
                 {
                     ImportSteamButton.Focus();
                 }
+                visiblePanel = SteamPanel;
                 break;
             case 6:
                 StepLabel.Text = "6 of 6 · Complete";
@@ -153,8 +177,26 @@ public partial class FirstRunSetupWindow : Window
                 SectionDescription.Text = "Setup is complete. Your dashboard is ready.";
                 ReadySummary.Text = BuildReadySummary();
                 FinishButton.Focus();
+                visiblePanel = ReadyPanel;
                 break;
         }
+
+        AnimatePanel(visiblePanel);
+    }
+
+    private static void AnimatePanel(UIElement panel)
+    {
+        panel.Opacity = 0;
+        var transform = new TranslateTransform(26, 0);
+        panel.RenderTransform = transform;
+        panel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        });
+        transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(26, 0, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        });
     }
 
     private string BuildReadySummary()
@@ -329,6 +371,67 @@ public partial class FirstRunSetupWindow : Window
         {
             FinishButton_OnClick(FinishButton, new RoutedEventArgs());
             e.Handled = true;
+        }
+    }
+
+    private void HandleControllerAction(DashboardInputAction action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        switch (action)
+        {
+            case DashboardInputAction.MoveUp:
+                MoveFocus(FocusNavigationDirection.Up);
+                break;
+            case DashboardInputAction.MoveDown:
+                MoveFocus(FocusNavigationDirection.Down);
+                break;
+            case DashboardInputAction.MoveLeft:
+                MoveFocus(FocusNavigationDirection.Left);
+                break;
+            case DashboardInputAction.MoveRight:
+                MoveFocus(FocusNavigationDirection.Right);
+                break;
+            case DashboardInputAction.Back:
+                if (_step > 0)
+                {
+                    ShowStep(_step - 1);
+                }
+                break;
+            case DashboardInputAction.Activate:
+                ActivateCurrentSelection();
+                break;
+        }
+    }
+
+    private static void MoveFocus(FocusNavigationDirection direction)
+    {
+        if (Keyboard.FocusedElement is UIElement focused)
+        {
+            focused.MoveFocus(new TraversalRequest(direction));
+        }
+    }
+
+    private async void ActivateCurrentSelection()
+    {
+        if (Keyboard.FocusedElement is Button button)
+        {
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+            return;
+        }
+
+        if (_step is >= 1 and <= 4)
+        {
+            await NextAsync();
+            return;
+        }
+
+        if (_step == 6)
+        {
+            FinishButton_OnClick(FinishButton, new RoutedEventArgs());
         }
     }
 }
