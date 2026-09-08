@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, hardening/security-boundaries ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore XboxMetroLauncher.csproj
+
+      - name: Build
+        run: dotnet build XboxMetroLauncher.csproj --configuration Release --no-restore
