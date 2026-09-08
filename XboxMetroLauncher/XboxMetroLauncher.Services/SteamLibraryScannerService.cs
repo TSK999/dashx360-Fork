@@ -246,7 +246,8 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 				return false;
 			}
 		}
-		catch
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch
 		{
 		}
 		return true;
@@ -320,29 +321,19 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 		return Path.GetFullPath(path.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 	}
 
-	private static async Task<SteamArtworkResult> ResolveArtworkAsync(string steamPath, string appId, CancellationToken cancellationToken)
-	{
-		string localCacheRoot = Path.Combine(steamPath, "appcache", "librarycache");
-		string appCacheRoot = AppPaths.WritableFolder(Path.Combine("Assets", "GameArt", "Steam", appId));
-		Directory.CreateDirectory(appCacheRoot);
-		return new SteamArtworkResult(await ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "cover", new _003C_003Ez__ReadOnlyArray<string>(new string[2]
-		{
-			appId + "_library_600x900.jpg",
-			appId + "_library_600x900.png"
-		}), new _003C_003Ez__ReadOnlyArray<string>(new string[2]
-		{
-			"https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId + "/library_600x900.jpg",
-			"https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId + "/library_600x900.png"
-		}), cancellationToken), await ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "header", new _003C_003Ez__ReadOnlyArray<string>(new string[2]
-		{
-			appId + "_header.jpg",
-			appId + "_header.png"
-		}), new _003C_003Ez__ReadOnlySingleElementList<string>("https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId + "/header.jpg"), cancellationToken), await ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "hero", new _003C_003Ez__ReadOnlyArray<string>(new string[2]
-		{
-			appId + "_library_hero.jpg",
-			appId + "_library_hero.png"
-		}), new _003C_003Ez__ReadOnlySingleElementList<string>("https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId + "/library_hero.jpg"), cancellationToken), await ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "logo", new _003C_003Ez__ReadOnlySingleElementList<string>(appId + "_logo.png"), new _003C_003Ez__ReadOnlySingleElementList<string>("https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId + "/logo.png"), cancellationToken));
-	}
+    private static async Task<SteamArtworkResult> ResolveArtworkAsync(string steamPath, string appId, CancellationToken cancellationToken)
+    {
+        var localCacheRoot = Path.Combine(steamPath, "appcache", "librarycache");
+        var appCacheRoot = AppPaths.WritableFolder(Path.Combine("Assets", "GameArt", "Steam", appId));
+        var cdn = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + appId;
+        // Four independent assets per game; keep concurrency bounded at four requests.
+        var cover = ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "cover", new[] { appId + "_library_600x900.jpg", appId + "_library_600x900.png" }, new[] { cdn + "/library_600x900.jpg", cdn + "/library_600x900.png" }, cancellationToken);
+        var header = ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "header", new[] { appId + "_header.jpg", appId + "_header.png" }, new[] { cdn + "/header.jpg" }, cancellationToken);
+        var hero = ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "hero", new[] { appId + "_library_hero.jpg", appId + "_library_hero.png" }, new[] { cdn + "/library_hero.jpg" }, cancellationToken);
+        var logo = ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "logo", new[] { appId + "_logo.png" }, new[] { cdn + "/logo.png" }, cancellationToken);
+        await Task.WhenAll(cover, header, hero, logo).ConfigureAwait(false);
+        return new SteamArtworkResult(await cover, await header, await hero, await logo);
+    }
 
 	private static async Task<SteamArtworkFileResult> ResolveArtworkFileAsync(string localCacheRoot, string appCacheRoot, string appId, string destinationName, IReadOnlyList<string> localFileNames, IReadOnlyList<string> downloadUrls, CancellationToken cancellationToken)
 	{
@@ -383,7 +374,7 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 				byte[] array = await response.Content.ReadAsByteArrayAsync(cancellationToken);
 				if (array.Length >= 128)
 				{
-					await File.WriteAllBytesAsync(destinationPath, array, cancellationToken);
+					await AtomicFile.WriteAsync(destinationPath, array, cancellationToken);
 					if (IsValidArtworkFile(destinationPath))
 					{
 						return new SteamArtworkFileResult(MakePortableAssetPath(appId, Path.GetFileName(destinationPath)), null, destinationPath);

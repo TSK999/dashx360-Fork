@@ -134,7 +134,7 @@ public sealed class ControllerInputService : IDisposable
 
 	private readonly Dictionary<DashboardInputAction, DateTimeOffset> _lastMoveTimes = new Dictionary<DashboardInputAction, DateTimeOffset>();
 
-	private readonly DirectInput _directInput;
+	private DirectInput? _directInput;
 
 	private ushort _previousButtons;
 
@@ -176,7 +176,6 @@ public sealed class ControllerInputService : IDisposable
 	{
 		_onAction = onAction;
 		_isEnabled = isEnabled ?? ((Func<bool>)(() => true));
-		_directInput = new DirectInput();
 		_timer = new Timer(OnTick, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 	}
 
@@ -190,7 +189,7 @@ public sealed class ControllerInputService : IDisposable
 	{
 		_isRunning = false;
 		_timer.Dispose();
-		lock (_pollLock) { ResetDirectInputJoystick(); _directInput.Dispose(); }
+		lock (_pollLock) { ResetDirectInputJoystick(); _directInput?.Dispose(); }
 	}
 
 	private void OnTick(object? state)
@@ -333,7 +332,7 @@ public sealed class ControllerInputService : IDisposable
 	{
 		try
 		{
-			return _directInput.GetDevices(deviceType, DeviceEnumerationFlags.AttachedOnly) ?? new List<DeviceInstance>();
+			return (_directInput ??= new DirectInput()).GetDevices(deviceType, DeviceEnumerationFlags.AttachedOnly) ?? new List<DeviceInstance>();
 		}
 		catch (Exception exception)
 		{
@@ -533,7 +532,7 @@ public sealed class ControllerInputService : IDisposable
 
 	private void DispatchActionOnUiThread(DashboardInputAction action)
 	{
-		if (_isDispatching)
+		if (!_isRunning || _isDispatching)
 		{
 			return;
 		}

@@ -93,6 +93,7 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
         {
             // A dedicated handle stays valid even when the tracked process exits during this await.
             using var process = Process.GetProcessById(identity.Id);
+            _ = process.SafeHandle;
             if (ReadIdentity(process) != identity || !IsVerified(game, process, launchedAt)) return Result(false, "The game process changed. Try again.");
             bool exited;
             lock (_syncRoot)
@@ -110,7 +111,7 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
                     {
                         _forceIdentity = identity;
                         _forceExpires = DateTimeOffset.UtcNow.AddSeconds(8);
-                        return new RunningGameCloseResult { RequiresForceConfirmation = true, Message = game.Title + " did not close. Press X again to force close." };
+                        return new RunningGameCloseResult { Success = false, RequiresForceConfirmation = true, Message = game.Title + " did not close. Press X again to force close." };
                     }
                     token.ThrowIfCancellationRequested();
                     if (ReadIdentity(process) != identity || !IsVerified(game, process, launchedAt)) return Result(false, "The game process could no longer be verified.");
@@ -152,7 +153,7 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
     }
     private static ProcessIdentity ReadIdentity(Process process) => new(process.Id, process.StartTime.ToUniversalTime().Ticks);
     private static bool IsAlive(Process? process) { try { return process != null && !process.HasExited; } catch { return false; } }
-    private static RunningGameCloseResult Result(bool success, string message) => new() { Success = success, Message = message };
+    private static RunningGameCloseResult Result(bool success, string message) => new() { Success = success, RequiresForceConfirmation = false, Message = message };
     private static async Task<bool> WaitForExitAsync(Process process, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);

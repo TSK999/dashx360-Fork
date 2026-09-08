@@ -106,13 +106,16 @@ internal static class AppPaths
         {
             var source = Path.Combine(AppFolder, relative);
             var destination = SafePaths.Within(UserDataFolder, relative);
-            if (!Directory.Exists(source) || Directory.Exists(destination)) continue;
+            var marker = Path.Combine(destination, ".migration-complete");
+            if (!Directory.Exists(source) || File.Exists(marker)) continue;
             foreach (var file in Directory.EnumerateFiles(source, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
             {
                 var target = SafePaths.Within(destination, Path.GetRelativePath(source, file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target, overwrite: false);
+                if (!File.Exists(target)) File.Copy(file, target, overwrite: false);
             }
+            Directory.CreateDirectory(destination);
+            AtomicFile.WriteAsync(marker, Array.Empty<byte>()).GetAwaiter().GetResult();
         }
     }
 

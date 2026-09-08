@@ -275,15 +275,11 @@ public partial class MainWindow : Window
 		}
 	}
 
-	private AppSettings? _subscribedSettings;
-
+    private PropertySubscription<AppSettings>? _settingsSubscription;
     private void SubscribeSettings()
     {
-        if (ReferenceEquals(_subscribedSettings, _viewModel.Settings)) return;
-        if (_subscribedSettings != null) _subscribedSettings.PropertyChanged -= Settings_OnPropertyChanged;
-        _subscribedSettings = _viewModel.Settings;
-        _subscribedSettings.PropertyChanged += Settings_OnPropertyChanged;
-        ApplyDisplaySettings();
+        _settingsSubscription ??= new PropertySubscription<AppSettings>(Settings_OnPropertyChanged);
+        if (_settingsSubscription.Rebind(_viewModel.Settings)) ApplyDisplaySettings();
     }
 
 	private async void Window_OnLoaded(object sender, RoutedEventArgs e)
@@ -323,7 +319,7 @@ public partial class MainWindow : Window
 		base.StateChanged -= Window_OnStateChanged;
 		base.Cursor = null;
 		Mouse.OverrideCursor = null;
-		if (_subscribedSettings != null) _subscribedSettings.PropertyChanged -= Settings_OnPropertyChanged;
+		_settingsSubscription?.Dispose();
 		_viewModel.FriendsOverlayRequested -= ViewModel_OnFriendsOverlayRequested;
 		_viewModel.ToastRequested -= ViewModel_OnToastRequested;
 		_guideWindow?.Close();

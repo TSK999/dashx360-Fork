@@ -1110,14 +1110,16 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		return result;
 	}
 
-	private async Task<T?> ReadFreshCacheAsync<T>(string path, TimeSpan maxAge, CancellationToken cancellationToken)
-	{
-		if (!File.Exists(path) || DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(path) > maxAge)
-		{
-			return default(T);
-		}
-		return await ReadCacheAsync<T>(path, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-	}
+    private async Task<T?> ReadFreshCacheAsync<T>(string path, TimeSpan maxAge, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(path) || DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(path) > maxAge) return default;
+            return await ReadCacheAsync<T>(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { App.LogException(ex, "SteamCommunityService.CacheMiss"); return default; }
+    }
 
     private static async Task<T?> ReadCacheAsync<T>(string path, CancellationToken cancellationToken)
     {

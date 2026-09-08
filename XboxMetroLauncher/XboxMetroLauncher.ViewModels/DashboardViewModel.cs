@@ -1055,7 +1055,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 			{
 				Settings.AudioOutputDeviceName = value;
 				OnPropertyChanged("AudioOutputDeviceName");
-				_ = _settingsService.SaveAsync(Settings);
+				_ = SaveAudioSettingsAsync();
 			}
 		}
 	}
@@ -5539,6 +5539,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
 	private void AudioAnalysis_OnFrameReady(object? sender, AudioAnalysisFrame frame)
 	{
+        if (_disposed) return;
 		System.Windows.Application current = System.Windows.Application.Current;
 		Dispatcher val = ((current != null) ? ((DispatcherObject)current).Dispatcher : null);
 		if (val == null || val.CheckAccess())
@@ -6200,6 +6201,12 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 		}
 		return SelectedGame.Title + " was imported from Steam. Store metadata is shown when available; some capabilities may depend on Steam store categories and installed game data.";
 	}
+
+    private async Task SaveAudioSettingsAsync()
+    {
+        try { await _settingsService.SaveAsync(Settings); }
+        catch (Exception ex) { App.LogException(ex, "SaveAudioSettings"); StatusMessage = "Audio settings could not be saved: " + ex.Message; }
+    }
 
 	private async Task SaveSettingsAsync()
 	{

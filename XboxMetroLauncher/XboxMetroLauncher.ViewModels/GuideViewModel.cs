@@ -1864,8 +1864,12 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 		OnPropertyChanged("ShowFooterXAction");
 	}
 
+	private bool _disposed;
+
 	public void Dispose()
 	{
+        if (_disposed) return;
+        _disposed = true;
 		_dashboard.PropertyChanged -= Dashboard_OnPropertyChanged;
 		_clockTimer.Stop();
 		_partyRefreshTimer.Stop();
@@ -1875,6 +1879,7 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 
 	private async Task RefreshAsync(bool showPopup)
 	{
+        if (_disposed) return;
 		if (_isRefreshingFriends)
 		{
 			return;
@@ -2925,6 +2930,7 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 
 	private async Task RefreshPartySnapshotAsync(bool forceRebuild = false)
 	{
+        if (_disposed) return;
 		if (!(await _partyRefreshLock.WaitAsync(0).ConfigureAwait(continueOnCapturedContext: true)))
 		{
 			return;
@@ -2941,6 +2947,7 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 				return;
 			}
 			bool dashPartyChanged = await RefreshDashPartyLinkAsync().ConfigureAwait(continueOnCapturedContext: true);
+            if (_disposed) return;
 			bool flag = _isUsingDiscordPartyData || !string.IsNullOrWhiteSpace(_partyStatusMessage);
 			_isUsingDiscordPartyData = false;
 			_partyStatusMessage = string.Empty;
@@ -3729,8 +3736,10 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 
 	private async Task LoadFriendsAsync(bool showPopup)
 	{
+        if (_disposed) return;
 		_friends.Clear();
 		List<FriendProfile> list = (await _friendsService.LoadAsync().ConfigureAwait(continueOnCapturedContext: true)).Select(NormalizeOfflineFriend).ToList();
+        if (_disposed) return;
 		bool flag = false;
 		foreach (FriendProfile item in list)
 		{
@@ -3748,6 +3757,7 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 			QueueFriendsSave();
 		}
 		SocialFriendsLoadResult socialFriendsLoadResult = await _socialIntegrationManager.LoadFriendsAsync(_dashboard.Settings.SocialIntegrationMode, _dashboard.Settings.DiscordConnectionState, _dashboard.Profile).ConfigureAwait(continueOnCapturedContext: true);
+        if (_disposed) return;
 		_socialFriends.Clear();
 		_socialFriends.AddRange(SortSocialFriends(socialFriendsLoadResult.Friends));
 		if (showPopup && !string.IsNullOrWhiteSpace(socialFriendsLoadResult.PopupMessage))

@@ -29,6 +29,7 @@ internal static class Program
         try
         {
             Check("WPF images retain and refresh their bindings across repeated suspension", BindingRestores);
+            Check("Settings replacement detaches old values and observes new values", SettingsReplacement);
             Check("Partial settings import preserves profile, library and other settings", PartialImport);
             Check("Malformed, null and future backups leave live JSON unchanged", InvalidImports);
             Check("Theme traversal and invalid image payloads do not publish files", UnsafeThemes);
@@ -70,6 +71,18 @@ internal static class Program
             model.Value = Pixel((byte)(i + 2)); model.Notify();
             Assert(ReferenceEquals(image.Source, model.Value));
         }
+        return Task.CompletedTask;
+    }
+    private static Task SettingsReplacement()
+    {
+        var original = new AppSettings(); var imported = new AppSettings(); var calls = 0;
+        using var subscription = new PropertySubscription<AppSettings>((_, _) => calls++);
+        Assert(subscription.Rebind(original));
+        Assert(subscription.Rebind(imported));
+        Assert(!subscription.Rebind(imported));
+        original.StartFullscreen = !original.StartFullscreen; Assert(calls == 0);
+        imported.StartFullscreen = !imported.StartFullscreen; Assert(calls == 1);
+        subscription.Dispose(); imported.StartFullscreen = !imported.StartFullscreen; Assert(calls == 1);
         return Task.CompletedTask;
     }
     private sealed record Fixture(string Root, JsonStore Store, JsonGameLibraryService Library, ProfileService Profile, SettingsService Settings, ImportExportService Importer);

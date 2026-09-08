@@ -42,7 +42,8 @@ public sealed class GameLaunchService : IGameLaunchService
 				FileName = url,
 				UseShellExecute = true
 			});
-			Log($"url launch request | title={game.Title} | url={url}");
+			process?.Dispose();
+            Log($"url launch request | title={game.Title} | url={url}");
 			return new GameLaunchResult
 			{
 				TrackedProcess = null
