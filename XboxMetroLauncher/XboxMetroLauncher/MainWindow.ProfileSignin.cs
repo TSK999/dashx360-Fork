@@ -620,7 +620,7 @@ public partial class MainWindow
         Canvas.SetTop(head, 7);
         canvas.Children.Add(head);
 
-        var hair = new Path
+        var hair = new System.Windows.Shapes.Path
         {
             Data = Geometry.Parse("M 54,27 C 55,10 91,4 98,27 C 88,17 68,16 54,27 Z"),
             Fill = ghost ? new SolidColorBrush(Color.FromRgb(185, 187, 187)) : new SolidColorBrush(Color.FromRgb(99, 72, 48)),
@@ -772,10 +772,10 @@ public partial class MainWindow
     {
         try
         {
-            string fallback = AppPaths.ResolvePath(Path.Combine("Assets", "Profile", "profilepicture.jpg"));
+            string fallback = AppPaths.ResolvePath(System.IO.Path.Combine("Assets", "Profile", "profilepicture.jpg"));
             string candidate = string.IsNullOrWhiteSpace(configuredPath)
                 ? fallback
-                : (Path.IsPathRooted(configuredPath) ? configuredPath : AppPaths.ResolvePath(configuredPath));
+                : (System.IO.Path.IsPathRooted(configuredPath) ? configuredPath : AppPaths.ResolvePath(configuredPath));
             if (!File.Exists(candidate))
             {
                 candidate = fallback;
@@ -881,7 +881,7 @@ public partial class MainWindow
         {
             Gamertag = gamertag,
             Name = string.IsNullOrWhiteSpace(name) ? "(No name)" : name,
-            GamerPicturePath = Path.Combine("Assets", "Profile", "profilepicture.jpg"),
+            GamerPicturePath = System.IO.Path.Combine("Assets", "Profile", "profilepicture.jpg"),
             Gamerscore = 0,
             OnlineStatus = "Online",
             Motto = "(No motto)",
