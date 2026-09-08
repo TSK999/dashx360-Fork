@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using XboxMetroLauncher.Models;
@@ -20,7 +21,16 @@ public sealed class FirstRunSetupService
     {
         try
         {
-            return File.Exists(Path.Combine(AppPaths.UserDataFolder, FileName));
+            string path = Path.Combine(AppPaths.UserDataFolder, FileName);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            FirstRunSetupState? state = JsonSerializer.Deserialize<FirstRunSetupState>(
+                File.ReadAllText(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return state?.Completed == true;
         }
         catch
         {
