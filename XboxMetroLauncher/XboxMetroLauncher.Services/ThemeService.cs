@@ -61,7 +61,9 @@ public sealed class ThemeService : IThemeService
 	public async Task<DashboardTheme> CreateThemeAsync(string themeName, string? homeImagePath, string? gamesImagePath, string? settingsImagePath, string? appsImagePath, CancellationToken cancellationToken = default(CancellationToken))
 	{
 		string safeName = (string.IsNullOrWhiteSpace(themeName) ? "Custom Theme" : themeName.Trim());
-		string path = "theme-" + Guid.NewGuid().ToString("N");
+		if ((await LoadThemesAsync(cancellationToken).ConfigureAwait(false)).Any(theme => string.Equals(theme.Name, safeName, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("A theme with this name already exists. Choose another name.");
+        string path = "theme-" + Guid.NewGuid().ToString("N");
 		string folderPath = SafePaths.Within(_themesRoot, path);
 		Directory.CreateDirectory(folderPath);
 		DashboardThemeManifest manifest = new DashboardThemeManifest
@@ -169,16 +171,4 @@ public sealed class ThemeService : IThemeService
 		}
 	}
 
-	private static string CreateSafeFolderName(string themeName)
-	{
-		char[] invalid = Path.GetInvalidFileNameChars();
-		string text = new string((from ch in themeName
-			where !invalid.Contains(ch)
-			select (!char.IsWhiteSpace(ch)) ? ch : '_').ToArray()).Trim('_');
-		if (string.IsNullOrWhiteSpace(text))
-		{
-			text = "Custom_Theme";
-		}
-		return text;
-	}
 }

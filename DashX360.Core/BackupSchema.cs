@@ -24,6 +24,16 @@ public static class BackupSchema
             if (expected != JsonValueKind.Undefined && property.Value.ValueKind != expected)
                 throw new InvalidDataException(property.Name + " must contain valid data, not null.");
         }
+        if (Get(root, "Library") is JsonElement library) ValidateLibrary(library);
         return names;
     }
+    public static void ValidateLibrary(JsonElement library)
+    {
+        foreach (var field in new[] { "Games", "LibraryPaths" })
+            if (Get(library, field) is JsonElement value && value.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Library " + field + " must be an array, not null.");
+        if (Get(library, "LibraryPaths") is JsonElement paths && paths.EnumerateArray().Any(p => p.ValueKind != JsonValueKind.String))
+            throw new InvalidDataException("Library paths must contain valid strings.");
+    }
+
 }

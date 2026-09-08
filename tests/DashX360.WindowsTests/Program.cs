@@ -127,12 +127,14 @@ internal static class Program
         Assert(safety.Settings.ThemeName == "Original theme");
         Assert((await Import(fixture, "{\"CustomThemes\":[]}")).Success);
         Assert((await fixture.Library.LoadAsync()).Games.Count == 1);
+        Assert((await Import(fixture, "{\"Library\":{\"LibraryPaths\":[\"D:/Games\"]}}")).Success);
+        Assert((await fixture.Library.LoadAsync()).Games.Single().Title == "Existing");
     }
     private static async Task InvalidImports()
     {
         var fixture = await CreateFixture();
         var before = await File.ReadAllTextAsync(Path.Combine(fixture.Root, "library.json"));
-        foreach (var json in new[] { "{", "{\"ExportVersion\":\"9\"}", "{\"Library\":null}", "{\"Library\":{\"Games\":[null]}}", "{\"CustomThemes\":[null]}" })
+        foreach (var json in new[] { "{", "{\"ExportVersion\":\"9\"}", "{\"Library\":null}", "{\"Library\":{\"Games\":null}}", "{\"Library\":{\"LibraryPaths\":[null]}}", "{\"Library\":{\"Games\":[null]}}", "{\"CustomThemes\":[null]}" })
         {
             Assert(!(await Import(fixture, json)).Success);
             Assert(await File.ReadAllTextAsync(Path.Combine(fixture.Root, "library.json")) == before);

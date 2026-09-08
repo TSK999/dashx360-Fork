@@ -112,7 +112,7 @@ internal static class AppPaths
             {
                 var target = SafePaths.Within(destination, Path.GetRelativePath(source, file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                if (!File.Exists(target)) File.Copy(file, target, overwrite: false);
+                if (!File.Exists(target)) AtomicFile.CopyAsync(file, target).GetAwaiter().GetResult();
             }
             Directory.CreateDirectory(destination);
             AtomicFile.WriteAsync(marker, Array.Empty<byte>()).GetAwaiter().GetResult();

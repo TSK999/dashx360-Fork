@@ -192,7 +192,7 @@ public sealed class GameLaunchService : IGameLaunchService
 	{
 		try
 		{
-			return process.MainModule?.FileName;
+			return ProcessPaths.TryRead(process);
 		}
 		catch
 		{

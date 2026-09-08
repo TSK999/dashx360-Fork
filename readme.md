@@ -72,3 +72,7 @@ Do not reupload or redistribute modified versions in a way that makes it look li
 
 This is an unofficial, non-commercial fan project. Xbox, Xbox 360, Xbox LIVE, Microsoft, and related names, logos, and imagery are property of Microsoft. This project is not affiliated with, endorsed by, or sponsored by Microsoft.
 
+
+## Building and data storage
+
+See [the stability repair notes](docs/stability-repairs.md) for build commands, regression checks, backup compatibility, data migration and desktop acceptance checks. The default writable data location is `%LOCALAPPDATA%\DashX360\UserData`; use `--portable` to keep data beside the application.

@@ -19,6 +19,7 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
     private bool _hasPlaytimeUpdate;
     private RunningGameState _state;
     private long _generation;
+    private HashSet<int> _knownProcessIds = new();
     private ProcessIdentity? _identity;
     private ProcessIdentity? _forceIdentity;
     private DateTimeOffset _forceExpires;
@@ -34,7 +35,7 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
 
     public void BeginLaunch(GameMetadata game, DateTimeOffset launchedAt)
     {
-        lock (_syncRoot) { ClearLocked(); _game = game; _launchedAt = launchedAt; _state = RunningGameState.Launching; }
+        lock (_syncRoot) { ClearLocked(); _knownProcessIds = CaptureProcessIds(); _game = game; _launchedAt = launchedAt; _state = RunningGameState.Launching; }
         Changed();
     }
 
@@ -138,18 +139,27 @@ public sealed class RunningGameService : IRunningGameService, IDisposable
         }
     }
 
-    private static bool IsVerified(GameMetadata game, Process process, DateTimeOffset launchedAt)
+    private bool IsVerified(GameMetadata game, Process process, DateTimeOffset launchedAt)
     {
         try
         {
             if (process.Id == Environment.ProcessId || process.HasExited || string.Equals(game.LaunchType, "Url", StringComparison.OrdinalIgnoreCase)) return false;
-            if (process.StartTime.ToUniversalTime() < launchedAt.UtcDateTime) return false;
+            if (_knownProcessIds.Contains(process.Id) || process.StartTime.ToUniversalTime() < launchedAt.UtcDateTime.AddSeconds(-1)) return false;
             var name = process.ProcessName;
             if (new[] { "steam", "steamwebhelper", "explorer", "dashx360", "xboxmetrolauncher", "cmd", "rundll32", "conhost", "gameoverlayui", "steamservice" }.Contains(name, StringComparer.OrdinalIgnoreCase)) return false;
-            return SafePaths.MatchesExecutable(process.MainModule?.FileName, game.ExecutablePath,
+            return SafePaths.MatchesExecutable(ProcessPaths.TryRead(process), game.ExecutablePath,
                 string.Equals(game.LaunchType, "Steam", StringComparison.OrdinalIgnoreCase) ? game.InstallPath : null);
         }
         catch { return false; }
+    }
+    private static HashSet<int> CaptureProcessIds()
+    {
+        var ids = new HashSet<int>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process) { try { ids.Add(process.Id); } catch (InvalidOperationException) { } }
+        }
+        return ids;
     }
     private static ProcessIdentity ReadIdentity(Process process) => new(process.Id, process.StartTime.ToUniversalTime().Ticks);
     private static bool IsAlive(Process? process) { try { return process != null && !process.HasExited; } catch { return false; } }

@@ -87,6 +87,11 @@ public sealed class ImportExportService : IImportExportService
                 if (data.IncludesLibrary)
                 {
                     var importedLibrary = NormalizeLibrary(data.Backup.Library);
+                    if (data.LibraryJson is JsonElement libraryJson)
+                    {
+                        if (!BackupSchema.Has(libraryJson, "Games")) importedLibrary.Games = CloneLibrary(library).Games;
+                        if (!BackupSchema.Has(libraryJson, "LibraryPaths")) importedLibrary.LibraryPaths = library.LibraryPaths.ToList();
+                    }
                     await staged.RestoreArtworkAsync(importedLibrary, data.Backup.GameArtwork, cancellationToken);
                     await stagedStore.WriteAsync("library.json", importedLibrary, cancellationToken);
                 }
@@ -165,7 +170,7 @@ public sealed class ImportExportService : IImportExportService
 		foreach (KeyValuePair<string, DashboardTileCustomization> pair in settings.DashboardTileCustomizations)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			string imagePath = pair.Value.ImagePath;
+			string imagePath = string.IsNullOrWhiteSpace(pair.Value.ImagePath) ? string.Empty : AppPaths.ResolvePath(pair.Value.ImagePath);
 			if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
 			{
 				byte[] inArray = await File.ReadAllBytesAsync(imagePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
@@ -237,7 +242,7 @@ public sealed class ImportExportService : IImportExportService
 				string destination = Path.Combine(tileImageFolder, text);
 				if (File.Exists(destination))
 				{
-					destination = Path.Combine(tileImageFolder, $"{Path.GetFileNameWithoutExtension(text)}-{DateTime.Now:yyyyMMddHHmmss}{Path.GetExtension(text)}");
+					destination = Path.Combine(tileImageFolder, $"{Path.GetFileNameWithoutExtension(text)}-{Guid.NewGuid():N}{Path.GetExtension(text)}");
 				}
 				byte[] bytes = BackupImages.Decode(importedImage.ImageBase64, Path.GetFileName(destination));
 				await File.WriteAllBytesAsync(destination, bytes, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
@@ -261,10 +266,11 @@ public sealed class ImportExportService : IImportExportService
 			Location = profile.Location,
 			Description = profile.Description
 		};
-		if (!string.IsNullOrWhiteSpace(profile.GamerPicturePath) && File.Exists(profile.GamerPicturePath))
+		var picturePath = string.IsNullOrWhiteSpace(profile.GamerPicturePath) ? string.Empty : AppPaths.ResolvePath(profile.GamerPicturePath);
+        if (File.Exists(picturePath))
 		{
 			backup.GamerPictureFileName = Path.GetFileName(profile.GamerPicturePath);
-			backup.GamerPictureBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(profile.GamerPicturePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false));
+			backup.GamerPictureBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(picturePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false));
 		}
 		return backup;
 	}
@@ -523,8 +529,26 @@ public sealed class ImportExportService : IImportExportService
 		{
 			Directory.CreateDirectory(directoryName);
 		}
-		await AtomicFile.WriteJsonAsync(filePath, backup, SerializerOptions, cancellationToken).ConfigureAwait(false);
+		ValidateExportImages(backup);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(backup, SerializerOptions);
+        if (bytes.Length > 256L * 1024 * 1024) throw new InvalidDataException("The backup exceeds the supported 256 MB limit.");
+        await AtomicFile.WriteAsync(filePath, bytes, cancellationToken).ConfigureAwait(false);
 	}
+
+    private static void ValidateExportImages(DashboardBackup backup)
+    {
+        static void Validate(string data, string name) { if (!string.IsNullOrWhiteSpace(data)) BackupImages.Decode(data, name); }
+        Validate(backup.Profile.GamerPictureBase64, backup.Profile.GamerPictureFileName);
+        foreach (var image in backup.Settings.DashboardTileImages) Validate(image.ImageBase64, image.FileName);
+        foreach (var image in backup.GameArtwork) Validate(image.ImageBase64, image.FileName);
+        foreach (var theme in backup.CustomThemes)
+        {
+            Validate(theme.HomeImageBase64, theme.HomeImageFileName);
+            Validate(theme.GamesImageBase64, theme.GamesImageFileName);
+            Validate(theme.SettingsImageBase64, theme.SettingsImageFileName);
+            Validate(theme.AppsImageBase64, theme.AppsImageFileName);
+        }
+    }
 
 	private static async Task<ImportedDashboardData> ReadAndValidateBackupAsync(string filePath, CancellationToken cancellationToken)
 	{
@@ -544,7 +568,7 @@ public sealed class ImportExportService : IImportExportService
 		{
 			DashboardBackup dashboardBackup = root.Deserialize<DashboardBackup>(SerializerOptions) ?? throw new InvalidDataException("The selected backup file is empty or unreadable.");
 			var sections = BackupSchema.Sections(root);
-            return NormalizeImportedBackup(dashboardBackup, sections.Contains("Settings"), sections.Contains("Profile"), sections.Contains("Library"), sections.Contains("CustomThemes")) with { IncludesFriends = sections.Contains("Friends"), SettingsJson = BackupSchema.Get(root, "Settings"), ProfileJson = BackupSchema.Get(root, "Profile") };
+            return NormalizeImportedBackup(dashboardBackup, sections.Contains("Settings"), sections.Contains("Profile"), sections.Contains("Library"), sections.Contains("CustomThemes")) with { IncludesFriends = sections.Contains("Friends"), SettingsJson = BackupSchema.Get(root, "Settings"), ProfileJson = BackupSchema.Get(root, "Profile"), LibraryJson = BackupSchema.Get(root, "Library") };
 		}
 		if (root.ValueKind == JsonValueKind.Object && IsSettingsJson(root))
 		{
@@ -564,11 +588,12 @@ public sealed class ImportExportService : IImportExportService
 		}
 		if (root.ValueKind == JsonValueKind.Object && IsLibraryJson(root))
 		{
-			GameLibrary library = root.Deserialize<GameLibrary>(SerializerOptions) ?? throw new InvalidDataException("The selected library file is empty or unreadable.");
+			BackupSchema.ValidateLibrary(root);
+            GameLibrary library = root.Deserialize<GameLibrary>(SerializerOptions) ?? throw new InvalidDataException("The selected library file is empty or unreadable.");
 			return NormalizeImportedBackup(new DashboardBackup
 			{
 				Library = library
-			}, includesSettings: false, includesProfile: false, includesLibrary: true, includesThemes: false);
+			}, includesSettings: false, includesProfile: false, includesLibrary: true, includesThemes: false) with { LibraryJson = root.ValueKind == JsonValueKind.Array ? JsonSerializer.SerializeToElement(new { Games = root }) : root.Clone() };
 		}
 		if (root.ValueKind == JsonValueKind.Array)
 		{
@@ -579,7 +604,7 @@ public sealed class ImportExportService : IImportExportService
 				{
 					Games = games
 				}
-			}, includesSettings: false, includesProfile: false, includesLibrary: true, includesThemes: false);
+			}, includesSettings: false, includesProfile: false, includesLibrary: true, includesThemes: false) with { LibraryJson = root.ValueKind == JsonValueKind.Array ? JsonSerializer.SerializeToElement(new { Games = root }) : root.Clone() };
 		}
 		throw new InvalidDataException("The selected JSON file is not a DashX360 backup, settings, profile, or library file.");
 	}
@@ -624,7 +649,7 @@ public sealed class ImportExportService : IImportExportService
 		return BackupSchema.Has(root, "Games") || BackupSchema.Has(root, "LibraryPaths");
 	}
 
-	private sealed record ImportedDashboardData(DashboardBackup Backup, bool IncludesSettings, bool IncludesProfile, bool IncludesLibrary, bool IncludesThemes, bool IncludesFriends = false, JsonElement? SettingsJson = null, JsonElement? ProfileJson = null);
+	private sealed record ImportedDashboardData(DashboardBackup Backup, bool IncludesSettings, bool IncludesProfile, bool IncludesLibrary, bool IncludesThemes, bool IncludesFriends = false, JsonElement? SettingsJson = null, JsonElement? ProfileJson = null, JsonElement? LibraryJson = null);
 
     private static string MakeSafeFileName(string value) => SafePaths.FileName(value);
     private static string MakeSafeFolderName(string value) => SafePaths.FileName(value);
