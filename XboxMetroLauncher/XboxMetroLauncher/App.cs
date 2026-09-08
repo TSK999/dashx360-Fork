@@ -53,6 +53,7 @@ public partial class App : Application
             var mainWindow = new MainWindow();
             mainWindow.InstallFirstRunVisualRefresh();
             mainWindow.InstallFirstRunToplessShellMode();
+            mainWindow.InstallProfileSigninScreen();
             MainWindow = mainWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow.Show();
