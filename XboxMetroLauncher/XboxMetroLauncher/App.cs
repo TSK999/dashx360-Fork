@@ -50,7 +50,9 @@ public partial class App : Application
 
             // First-run setup is hosted by MainWindow so the dashboard shell, boot
             // animation, scaling and input stack stay active for the whole launch.
-            MainWindow = new MainWindow();
+            var mainWindow = new MainWindow();
+            mainWindow.InstallFirstRunVisualRefresh();
+            MainWindow = mainWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow.Show();
         }
