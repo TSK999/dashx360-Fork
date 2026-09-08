@@ -1,7 +1,11 @@
+using System;
+
 namespace XboxMetroLauncher.Models;
 
 public sealed class Profile
 {
+	public string ProfileId { get; set; } = Guid.NewGuid().ToString("N");
+
 	public string Gamertag { get; set; } = "Player One";
 
 	public string Name { get; set; } = "(No name)";
