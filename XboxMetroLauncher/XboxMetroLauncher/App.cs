@@ -30,7 +30,11 @@ public partial class App : Application
 	private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
 	{
 		LogException(e.Exception, "Dispatcher");
-		e.Handled = true;
+
+		// Unknown dispatcher exceptions can leave the WPF object graph in a corrupt
+		// or partially-updated state. Log them, but do not suppress them globally.
+		// Expected/recoverable failures should be handled at their command/service boundary.
+		e.Handled = false;
 	}
 
 	internal static void LogException(Exception? exception, string source)
@@ -42,6 +46,7 @@ public partial class App : Application
 
 		try
 		{
+			Directory.CreateDirectory(AppPaths.LogsFolder);
 			File.AppendAllText(
 				Path.Combine(AppPaths.LogsFolder, "crash.log"),
 				$"[{DateTimeOffset.Now:u}] {source}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
