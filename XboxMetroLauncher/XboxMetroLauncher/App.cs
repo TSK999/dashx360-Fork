@@ -14,6 +14,7 @@ public partial class App : Application
 {
     private Mutex? _instanceMutex;
     private bool _ownsMutex;
+    private FileStream? _dataLease;
 	protected override void OnStartup(StartupEventArgs e)
 	{
 		DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -29,11 +30,12 @@ public partial class App : Application
         try
         {
             var root = AppPaths.UserDataFolder;
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(root).ToUpperInvariant())));
+            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)).ToUpperInvariant())));
             _instanceMutex = new Mutex(false, "Local\\DashX360-" + key);
             try { _ownsMutex = _instanceMutex.WaitOne(0); }
             catch (AbandonedMutexException) { _ownsMutex = true; }
             if (!_ownsMutex) { MessageBox.Show("DashX360 is already running with this data folder.", "DashX360"); Shutdown(); return; }
+            _dataLease = DataDirectoryLease.Acquire(root);
             Directory.CreateDirectory(AppPaths.LogsFolder);
             DataTransaction.Recover(root);
             AppPaths.MigrateMutableAssets();
@@ -51,6 +53,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _dataLease?.Dispose();
         if (_ownsMutex) _instanceMutex?.ReleaseMutex();
         _instanceMutex?.Dispose();
         base.OnExit(e);

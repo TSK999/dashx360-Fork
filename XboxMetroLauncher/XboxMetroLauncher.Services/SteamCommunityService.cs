@@ -298,7 +298,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		SteamCommunityConfig config = await LoadConfigAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (!HasCredentials(config))
 		{
-			LastStatusMessage = "Steam friends need UserData\\steam-web-config.json";
+			LastStatusMessage = "Add your Steam API key and SteamID64 in Steam setup.";
 			return Array.Empty<SocialFriend>();
 		}
 		string cachePath = AccountCache(config, "friends.json");
@@ -402,7 +402,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		SteamCommunityConfig config = await LoadConfigAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (!HasCredentials(config))
 		{
-			LastStatusMessage = "Steam achievements need UserData\\steam-web-config.json";
+			LastStatusMessage = "Add your Steam API key and SteamID64 in Steam setup.";
 			return Array.Empty<SteamAchievementItem>();
 		}
 		string safeAppId = new string(appId.Where(char.IsDigit).ToArray());

@@ -204,13 +204,13 @@ public partial class MainWindow : Window
 		viewModel = _viewModel;
 		base.DataContext = _viewModel;
 		_lastRenderedTab = _viewModel.CurrentTab;
-		_controllerInputService = new ControllerInputService(HandleControllerInputAction, () => _viewModel.Settings.EnableControllerInput);
+		_controllerInputService = new ControllerInputService(HandleControllerInputAction, () => _viewModel.Settings.EnableControllerInput && !_viewModel.IsImporting);
 		_guideHotkeyService = new GlobalHotkeyService();
 		_guideHotkeyService.HotkeyPressed += delegate
 		{
 			((DispatcherObject)this).Dispatcher.BeginInvoke((Delegate)(Action)delegate
 			{
-				HandleInputAction(DashboardInputAction.Guide);
+				if (!_viewModel.IsImporting) HandleInputAction(DashboardInputAction.Guide);
 			}, (DispatcherPriority)10, Array.Empty<object>());
 		};
 		_clockTimer = new DispatcherTimer
@@ -240,40 +240,21 @@ public partial class MainWindow : Window
 		return AppPaths.UserDataFolder;
 	}
 
-	private static void MigrateLegacyUserData(string targetRoot)
-	{
-		if (!Directory.Exists(targetRoot))
-		{
-			Directory.CreateDirectory(targetRoot);
-		}
-		if (Directory.EnumerateFiles(targetRoot, "*.json", SearchOption.TopDirectoryOnly).Any())
-		{
-			return;
-		}
-		foreach (string item in AppPaths.LegacyDataRoots())
-		{
-			if (!Directory.Exists(item))
-			{
-				continue;
-			}
-			List<string> list = Directory.EnumerateFiles(item, "*.json", SearchOption.TopDirectoryOnly).ToList();
-			if (list.Count == 0)
-			{
-				continue;
-			}
-			{
-				foreach (string item2 in list)
-				{
-					string text = System.IO.Path.Combine(targetRoot, System.IO.Path.GetFileName(item2));
-					if (!File.Exists(text))
-					{
-						File.Copy(item2, text, overwrite: false);
-					}
-				}
-				break;
-			}
-		}
-	}
+    private static void MigrateLegacyUserData(string targetRoot)
+    {
+        Directory.CreateDirectory(targetRoot);
+        if (Directory.EnumerateFiles(targetRoot, "*.json", SearchOption.TopDirectoryOnly).Any()) return;
+        foreach (var source in AppPaths.LegacyDataRoots())
+        {
+            if (!Directory.Exists(source) || string.Equals(System.IO.Path.GetFullPath(source), System.IO.Path.GetFullPath(targetRoot), StringComparison.OrdinalIgnoreCase)) continue;
+            var files = Directory.EnumerateFiles(source, "*.json", SearchOption.TopDirectoryOnly).ToList();
+            if (files.Count == 0) continue;
+            using var transaction = new DataTransaction(targetRoot);
+            foreach (var file in files) File.Copy(file, SafePaths.Within(transaction.StagingRoot, System.IO.Path.GetFileName(file)));
+            transaction.CommitAsync().GetAwaiter().GetResult();
+            return;
+        }
+    }
 
     private PropertySubscription<AppSettings>? _settingsSubscription;
     private void SubscribeSettings()
@@ -311,6 +292,8 @@ public partial class MainWindow : Window
 		catch (Exception exception)
 		{
 			App.LogException(exception, "MainWindow.Window_OnLoaded");
+            System.Windows.MessageBox.Show("Dashboard data could not be loaded: " + exception.Message, "DashX360");
+            Close();
 		}
 	}
 

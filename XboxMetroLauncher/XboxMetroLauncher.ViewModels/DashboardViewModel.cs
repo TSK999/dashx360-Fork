@@ -6236,23 +6236,37 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 		}
 	}
 
-	private async Task ImportDataAsync()
-	{
-		string text = _filePickerService.PickJsonFile();
-		if (!string.IsNullOrWhiteSpace(text))
-		{
-			DashboardImportResult result = await _importExportService.ImportAsync(text);
-			if (!result.Success)
-			{
-				System.Windows.MessageBox.Show(result.Message, "Import Failed", MessageBoxButton.OK, MessageBoxImage.Hand);
-				return;
-			}
-			await ReloadSavedDataAsync(reloadSettings: true);
-			_startupRegistrationService.SetLaunchOnStartup(Settings.LaunchOnWindowsStartup);
-			StatusMessage = "Backup imported";
-			System.Windows.MessageBox.Show((result.SafetyBackupPath == null) ? result.Message : $"{result.Message}{Environment.NewLine}{Environment.NewLine}Safety backup created:{Environment.NewLine}{result.SafetyBackupPath}", "Import Complete", MessageBoxButton.OK, MessageBoxImage.Asterisk);
-		}
-	}
+    private volatile bool _isImporting;
+    public bool IsImporting => _isImporting;
+    private async Task ImportDataAsync()
+    {
+        if (IsScanning) { StatusMessage = "Finish or cancel the scan before importing a backup."; return; }
+        var path = _filePickerService.PickJsonFile();
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var window = System.Windows.Application.Current?.MainWindow;
+        _isImporting = true; OnPropertyChanged(nameof(IsImporting));
+        if (window != null) window.IsEnabled = false;
+        DashboardImportResult result;
+        try
+        {
+            StatusMessage = "Importing backup…";
+            result = await _importExportService.ImportAsync(path);
+            if (result.Success)
+            {
+                await ReloadSavedDataAsync(reloadSettings: true);
+                _startupRegistrationService.SetLaunchOnStartup(Settings.LaunchOnWindowsStartup);
+            }
+        }
+        finally
+        {
+            _isImporting = false; OnPropertyChanged(nameof(IsImporting));
+            if (window != null) window.IsEnabled = true;
+        }
+        StatusMessage = result.Success ? "Backup imported" : "Import failed";
+        var message = result.Message;
+        if (!string.IsNullOrWhiteSpace(result.SafetyBackupPath)) message += $"{Environment.NewLine}{Environment.NewLine}Safety backup: {result.SafetyBackupPath}";
+        System.Windows.MessageBox.Show(message, result.Success ? "Import Complete" : "Import Failed", MessageBoxButton.OK, result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
+    }
 
 	private async Task ScanSteamGamesAsync()
 	{
@@ -7253,8 +7267,15 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 		FeaturedGame = SelectedGame;
 	}
 
+    private async Task PersistLibraryObservedAsync()
+    {
+        try { await PersistLibraryAsync(); }
+        catch (Exception ex) { App.LogException(ex, "SaveLibrary"); StatusMessage = "The library could not be saved: " + ex.Message; }
+    }
+
 	private async Task PersistLibraryAsync()
 	{
+        if (_isImporting || _disposed) return;
 		await _libraryService.SaveAsync(_library);
 		RefreshDerivedLists();
 	}
@@ -7433,6 +7454,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
 	private void HandleRunningGameStateChangedOnUiThread()
 	{
+        if (_isImporting || _disposed) return;
 		OnPropertyChanged("HasRunningLaunchedGame");
 		OnPropertyChanged("RunningLaunchedGameTitle");
 		OnPropertyChanged("RunningGameFooterActionText");
@@ -7444,7 +7466,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 		{
 			game.Refresh();
 		}
-		PersistLibraryAsync();
+		_ = PersistLibraryObservedAsync();
 	}
 
 	private sealed class SpotifyMirrorPlaylist
@@ -7521,7 +7543,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 			return SpotifyMirrorScheme + Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this)));
 		}
 	}
-    private bool _disposed;
+    private volatile bool _disposed;
     public void Dispose()
     {
         if (_disposed) return;

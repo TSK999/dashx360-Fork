@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
@@ -30,6 +31,7 @@ internal static class Program
         {
             Check("WPF images retain and refresh their bindings across repeated suspension", BindingRestores);
             Check("Settings replacement detaches old values and observes new values", SettingsReplacement);
+            Check("A data folder lease excludes a second instance", DataLease);
             Check("Partial settings import preserves profile, library and other settings", PartialImport);
             Check("Malformed, null and future backups leave live JSON unchanged", InvalidImports);
             Check("Theme traversal and invalid image payloads do not publish files", UnsafeThemes);
@@ -83,6 +85,14 @@ internal static class Program
         original.StartFullscreen = !original.StartFullscreen; Assert(calls == 0);
         imported.StartFullscreen = !imported.StartFullscreen; Assert(calls == 1);
         subscription.Dispose(); imported.StartFullscreen = !imported.StartFullscreen; Assert(calls == 1);
+        return Task.CompletedTask;
+    }
+    private static Task DataLease()
+    {
+        using var first = DataDirectoryLease.Acquire(Path.Combine(root, "lease"));
+        try { using var second = DataDirectoryLease.Acquire(Path.Combine(root, "lease")); throw new Exception("Second lease was allowed"); }
+        catch (IOException) { }
+        first.Dispose(); using var reacquired = DataDirectoryLease.Acquire(Path.Combine(root, "lease"));
         return Task.CompletedTask;
     }
     private sealed record Fixture(string Root, JsonStore Store, JsonGameLibraryService Library, ProfileService Profile, SettingsService Settings, ImportExportService Importer);
