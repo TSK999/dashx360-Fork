@@ -19,11 +19,37 @@ public sealed class ThemeService : IThemeService
 		PropertyNameCaseInsensitive = true
 	};
 
+	private static readonly HashSet<string> ReservedWindowsFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"CON",
+		"PRN",
+		"AUX",
+		"NUL",
+		"COM1",
+		"COM2",
+		"COM3",
+		"COM4",
+		"COM5",
+		"COM6",
+		"COM7",
+		"COM8",
+		"COM9",
+		"LPT1",
+		"LPT2",
+		"LPT3",
+		"LPT4",
+		"LPT5",
+		"LPT6",
+		"LPT7",
+		"LPT8",
+		"LPT9"
+	};
+
 	private readonly string _themesRoot;
 
 	public ThemeService()
 	{
-		_themesRoot = AppPaths.FindFolder(Path.Combine("Assets", "Custom Files", "Themes"));
+		_themesRoot = Path.GetFullPath(AppPaths.FindFolder(Path.Combine("Assets", "Custom Files", "Themes")));
 		Directory.CreateDirectory(_themesRoot);
 	}
 
@@ -42,6 +68,11 @@ public sealed class ThemeService : IThemeService
 			cancellationToken.ThrowIfCancellationRequested();
 			try
 			{
+				DirectoryInfo directoryInfo = new DirectoryInfo(item);
+				if ((directoryInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+				{
+					continue;
+				}
 				DashboardTheme dashboardTheme = await LoadThemeAsync(item, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 				if (dashboardTheme != null)
 				{
@@ -62,17 +93,17 @@ public sealed class ThemeService : IThemeService
 	{
 		string safeName = (string.IsNullOrWhiteSpace(themeName) ? "Custom Theme" : themeName.Trim());
 		string path = CreateSafeFolderName(safeName);
-		string folderPath = Path.Combine(_themesRoot, path);
+		string folderPath = GetContainedPath(_themesRoot, path, "theme folder");
 		Directory.CreateDirectory(folderPath);
 		DashboardThemeManifest manifest = new DashboardThemeManifest
 		{
 			Name = safeName
 		};
-		await SaveThemeImageAsync(homeImagePath, Path.Combine(folderPath, manifest.HomeImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await SaveThemeImageAsync(gamesImagePath, Path.Combine(folderPath, manifest.GamesImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await SaveThemeImageAsync(settingsImagePath, Path.Combine(folderPath, manifest.SettingsImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await SaveThemeImageAsync(appsImagePath, Path.Combine(folderPath, manifest.AppsImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await using (FileStream stream = File.Create(Path.Combine(folderPath, "theme.json")))
+		await SaveThemeImageAsync(homeImagePath, GetContainedPath(folderPath, manifest.HomeImage, "theme image"), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		await SaveThemeImageAsync(gamesImagePath, GetContainedPath(folderPath, manifest.GamesImage, "theme image"), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		await SaveThemeImageAsync(settingsImagePath, GetContainedPath(folderPath, manifest.SettingsImage, "theme image"), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		await SaveThemeImageAsync(appsImagePath, GetContainedPath(folderPath, manifest.AppsImage, "theme image"), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		await using (FileStream stream = File.Create(GetContainedPath(folderPath, "theme.json", "theme manifest")))
 		{
 			await JsonSerializer.SerializeAsync(stream, manifest, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		}
@@ -89,7 +120,8 @@ public sealed class ThemeService : IThemeService
 
 	private static async Task<DashboardTheme?> LoadThemeAsync(string folderPath, CancellationToken cancellationToken)
 	{
-		string path = Path.Combine(folderPath, "theme.json");
+		folderPath = Path.GetFullPath(folderPath);
+		string path = GetContainedPath(folderPath, "theme.json", "theme manifest");
 		DashboardThemeManifest manifest;
 		if (File.Exists(path))
 		{
@@ -125,7 +157,15 @@ public sealed class ThemeService : IThemeService
 		{
 			return string.Empty;
 		}
-		string path = Path.Combine(folderPath, fileName);
+		string path;
+		try
+		{
+			path = GetContainedPath(folderPath, fileName, "theme image");
+		}
+		catch (InvalidDataException)
+		{
+			return string.Empty;
+		}
 		if (!File.Exists(path))
 		{
 			return string.Empty;
@@ -172,13 +212,34 @@ public sealed class ThemeService : IThemeService
 		}
 	}
 
+	private static string GetContainedPath(string rootPath, string relativePath, string description)
+	{
+		if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+		{
+			throw new InvalidDataException($"Invalid {description} path.");
+		}
+		string fullRoot = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+		string fullPath = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+		string rootPrefix = fullRoot + Path.DirectorySeparatorChar;
+		if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+		{
+			throw new InvalidDataException($"The {description} path escapes its allowed folder.");
+		}
+		return fullPath;
+	}
+
 	private static string CreateSafeFolderName(string themeName)
 	{
 		char[] invalid = Path.GetInvalidFileNameChars();
 		string text = new string((from ch in themeName
 			where !invalid.Contains(ch)
-			select (!char.IsWhiteSpace(ch)) ? ch : '_').ToArray()).Trim('_');
-		if (string.IsNullOrWhiteSpace(text))
+			select (!char.IsWhiteSpace(ch)) ? ch : '_').ToArray()).Trim(' ', '.', '_');
+		if (text.Length > 80)
+		{
+			text = text.Substring(0, 80).TrimEnd(' ', '.', '_');
+		}
+		string reservedCandidate = text.Split('.')[0];
+		if (string.IsNullOrWhiteSpace(text) || text == "." || text == ".." || ReservedWindowsFileNames.Contains(reservedCandidate))
 		{
 			text = "Custom_Theme";
 		}
