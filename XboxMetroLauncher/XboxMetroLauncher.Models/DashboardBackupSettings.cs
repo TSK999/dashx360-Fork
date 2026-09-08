@@ -4,6 +4,8 @@ namespace XboxMetroLauncher.Models;
 
 public sealed class DashboardBackupSettings
 {
+	public double? DashboardVolume { get; set; }
+
 	public bool StartFullscreen { get; set; }
 
 	public bool PlayUiSounds { get; set; }

@@ -30,7 +30,7 @@ using XboxMetroLauncher.ViewModels.Tabs;
 
 namespace XboxMetroLauncher.ViewModels;
 
-public sealed class DashboardViewModel : ObservableObject
+public sealed class DashboardViewModel : ObservableObject, IDisposable
 {
 	private static readonly string SteamScanDebugLogPath = Path.Combine(AppPaths.LogsFolder, "steam-scan-debug.log");
 
@@ -2582,6 +2582,7 @@ public sealed class DashboardViewModel : ObservableObject
 		AddGameCommand = new AsyncRelayCommand(AddGameAsync);
 		EditSelectedGameCommand = new AsyncRelayCommand(EditSelectedGameAsync);
 		ScanFolderCommand = new AsyncRelayCommand(ScanFolderAsync);
+        CancelScanCommand = new RelayCommand(_ => _scanCancellation?.Cancel());
 		ToggleFavoriteCommand = new AsyncRelayCommand(ToggleFavoriteAsync, (object? _) => SelectedGame != null);
 		OpenSelectedGameStoreCommand = new RelayCommand(OpenSelectedGameStore);
 		SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
@@ -3133,6 +3134,8 @@ public sealed class DashboardViewModel : ObservableObject
 		RebuildAppLibraryTiles();
 	}
 
+	public double AppLibraryContentWidth => AppLibraryLayout.Width(AppLibraryTiles.Count);
+
 	private void RebuildAppLibraryTiles()
 	{
 		const double tileSize = 198.0;
@@ -3151,11 +3154,7 @@ public sealed class DashboardViewModel : ObservableObject
 		AppLibraryTiles.Add(new AppLibraryTileViewModel("Microsoft Movies & TV", "\uE714", System.Windows.Media.Color.FromRgb(0, 154, 0), tileSize, tileSize, firstX + step, secondY, null, "Assets/Tiles/myapps-movies-and-tv.png"));
 		foreach (GameCardViewModel app in Games.Where((GameCardViewModel game) => IsAppEntry(game.Game) && !IsBuiltInYouTubeEntry(game.Game)).OrderBy((GameCardViewModel game) => game.Title, StringComparer.CurrentCultureIgnoreCase))
 		{
-			int appIndex = AppLibraryTiles.Count - 5;
-			int row = appIndex < 3 ? 1 : 0;
-			int column = appIndex < 3 ? appIndex + 2 : Math.Min(4, appIndex - 3 + 3);
-			double left = firstX + step * column;
-			double top = firstY + step * row;
+			var (left, top) = AppLibraryLayout.Position(AppLibraryTiles.Count);
 			string iconPath = app.CoverArtPath;
 			AppLibraryTiles.Add(new AppLibraryTileViewModel(app.Title, "\uE7C3", System.Windows.Media.Color.FromRgb(0, 154, 0), tileSize, tileSize, left, top, null, iconPath, app));
 		}
@@ -3168,6 +3167,7 @@ public sealed class DashboardViewModel : ObservableObject
 		{
 			selectedTile = AppLibraryTiles.FirstOrDefault((AppLibraryTileViewModel tile) => string.Equals(tile.Title, selectedTitle, StringComparison.OrdinalIgnoreCase));
 		}
+		OnPropertyChanged(nameof(AppLibraryContentWidth));
 		SelectedAppLibraryTile = selectedTile ?? AppLibraryTiles.FirstOrDefault();
 		OnPropertyChanged("LibraryMenuCountText");
 	}
@@ -4028,6 +4028,8 @@ public sealed class DashboardViewModel : ObservableObject
 		{
 			_runningGameService.Clear();
 			StatusMessage = ex.Message;
+            if (System.Windows.Application.Current?.MainWindow is Window window)
+            { window.WindowState = Settings.StartFullscreen ? WindowState.Maximized : WindowState.Normal; window.Activate(); }
 		}
 	}
 
@@ -5128,12 +5130,12 @@ public sealed class DashboardViewModel : ObservableObject
 
 	private static string GetCustomCoverFolder(string folderName)
 	{
-		return EnsureDirectory(Path.Combine(AppPaths.AppFolder, "Assets", "Custom Files", "CoverArt", folderName));
+		return AppPaths.WritableFolder(Path.Combine("Assets", "Custom Files", "CoverArt", folderName));
 	}
 
 	private static string GetMusicFolder()
 	{
-		return EnsureDirectory(Path.Combine(AppPaths.AppFolder, "Assets", "Custom Files", "Music Files"));
+		return AppPaths.WritableFolder(Path.Combine("Assets", "Custom Files", "Music Files"));
 	}
 
 	private static string GetMusicBrowserIconPath(string fileName)
@@ -5143,7 +5145,7 @@ public sealed class DashboardViewModel : ObservableObject
 
 	private static string GetSpotifyMirrorFolder()
 	{
-		return EnsureDirectory(Path.Combine(AppPaths.AppFolder, "Assets", "Custom Files", "Spotify Mirror"));
+		return AppPaths.WritableFolder(Path.Combine("Assets", "Custom Files", "Spotify Mirror"));
 	}
 
 	private static string GetSpotifyMirrorPlaylistsFolder()
@@ -5153,7 +5155,7 @@ public sealed class DashboardViewModel : ObservableObject
 
 	private static string GetSpotifyPlaylistsFolder()
 	{
-		return EnsureDirectory(Path.Combine(AppPaths.AppFolder, "Assets", "Custom Files", "Spotify Playlists"));
+		return AppPaths.WritableFolder(Path.Combine("Assets", "Custom Files", "Spotify Playlists"));
 	}
 
 	private static string GetSpotifyPlaylistShortcutsFile()
@@ -5967,37 +5969,39 @@ public sealed class DashboardViewModel : ObservableObject
 		return value.ToString("h\\:mm\\:ss");
 	}
 
-	private async Task ScanFolderAsync()
-	{
-		string text = _filePickerService.PickFolder();
-		if (string.IsNullOrWhiteSpace(text))
-		{
-			return;
-		}
-		if (!_library.LibraryPaths.Contains<string>(text, StringComparer.OrdinalIgnoreCase))
-		{
-			_library.LibraryPaths.Add(text);
-		}
-		IReadOnlyList<GameMetadata> source = await _libraryService.ScanFolderAsync(text);
-		HashSet<string> knownPaths = _library.Games.Select((GameMetadata game) => game.ExecutablePath).ToHashSet<string>(StringComparer.OrdinalIgnoreCase);
-		int added = 0;
-		string destination = NormalizeAddDestination(Settings.DefaultAddDestination);
-		foreach (GameMetadata item in source.Where((GameMetadata game) => knownPaths.Add(game.ExecutablePath)))
-		{
-			if (destination == "My Apps")
-			{
-				item.Genre = "App";
-			}
-			_library.Games.Add(item);
-			Games.Add(new GameCardViewModel(item, _accentBrushes[Games.Count % _accentBrushes.Count]));
-			added++;
-		}
-		SortGamesByTitle(SelectedGame?.Game.Id);
-		await PersistLibraryAsync();
-		OnPropertyChanged("MyGamesCountText");
-		RefreshSetupDestinationState();
-		StatusMessage = ((added == 1) ? ("Imported 1 item to " + destination) : $"Imported {added} items to {destination}");
-	}
+    private CancellationTokenSource? _scanCancellation;
+    public bool IsScanning => _scanCancellation != null;
+    public ICommand CancelScanCommand { get; private set; } = null!;
+    private IProgress<LibraryScanProgress> ScanProgress() => new Progress<LibraryScanProgress>(p => { if (IsScanning) StatusMessage = $"Scanning {p.Completed}: {p.Location}"; });
+    private void ScanStarted() { _scanCancellation = new CancellationTokenSource(); OnPropertyChanged(nameof(IsScanning)); }
+    private void ScanFinished() { _scanCancellation?.Dispose(); _scanCancellation = null; OnPropertyChanged(nameof(IsScanning)); }
+
+    private async Task ScanFolderAsync()
+    {
+        if (IsScanning) return;
+        var folder = _filePickerService.PickFolder();
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        ScanStarted();
+        try
+        {
+            var source = await _libraryService.ScanFolderAsync(folder, _scanCancellation!.Token, ScanProgress());
+            _scanCancellation.Token.ThrowIfCancellationRequested();
+            var known = _library.Games.Select(game => game.ExecutablePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var added = source.Where(game => known.Add(game.ExecutablePath)).ToList();
+            var destination = NormalizeAddDestination(Settings.DefaultAddDestination);
+            foreach (var game in added) if (destination == "My Apps") game.Genre = "App";
+            if (!_library.LibraryPaths.Contains(folder, StringComparer.OrdinalIgnoreCase)) _library.LibraryPaths.Add(folder);
+            _library.Games.AddRange(added);
+            _library.Games = _library.Games.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+            SyncGamesCollectionFromLibrary();
+            await PersistLibraryAsync();
+            RefreshSetupDestinationState();
+            StatusMessage = $"Imported {added.Count} items to {destination}";
+        }
+        catch (OperationCanceledException) { StatusMessage = "Scan cancelled. Your library was kept."; }
+        catch (Exception ex) { App.LogException(ex, "ScanFolder"); StatusMessage = "Scan failed: " + ex.Message; }
+        finally { ScanFinished(); }
+    }
 
 	private async Task ToggleFavoriteAsync(object? _)
 	{
@@ -6245,17 +6249,21 @@ public sealed class DashboardViewModel : ObservableObject
 
 	private async Task ScanSteamGamesAsync()
 	{
-		_ = 1;
+		if (IsScanning) return;
+        ScanStarted();
 		try
 		{
-			SteamGameScanResult result = await _steamLibraryScannerService.ScanAsync(_library);
+			var snapshot = JsonSerializer.Deserialize<GameLibrary>(JsonSerializer.Serialize(_library))!;
+            SteamGameScanResult result = await _steamLibraryScannerService.ScanAsync(snapshot, _scanCancellation!.Token, ScanProgress());
+            _scanCancellation.Token.ThrowIfCancellationRequested();
 			if (!string.IsNullOrWhiteSpace(result.Message))
 			{
 				StatusMessage = result.Message;
 			}
 			if (result.Added > 0 || result.Updated > 0)
 			{
-				SyncGamesCollectionFromLibrary();
+				MergeSteamScan(snapshot);
+                SyncGamesCollectionFromLibrary();
 				RefreshDerivedLists();
 				SortGamesByTitle(SelectedGame?.Game.Id);
 				await PersistLibraryAsync();
@@ -6263,12 +6271,14 @@ public sealed class DashboardViewModel : ObservableObject
 			WriteSteamScanDebugReport(result);
 			System.Windows.MessageBox.Show(string.IsNullOrWhiteSpace(result.Message) ? $"Steam scan complete.{Environment.NewLine}{Environment.NewLine}Added: {result.Added}{Environment.NewLine}Updated: {result.Updated}{Environment.NewLine}Skipped: {result.Skipped}" : $"{result.Message}{Environment.NewLine}{Environment.NewLine}Added: {result.Added}{Environment.NewLine}Updated: {result.Updated}{Environment.NewLine}Skipped: {result.Skipped}", "Scan Steam Games", MessageBoxButton.OK, (result.Added > 0 || result.Updated > 0) ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation);
 		}
-		catch (Exception ex)
+		catch (OperationCanceledException) { StatusMessage = "Steam scan cancelled. Your library was kept."; }
+        catch (Exception ex)
 		{
 			App.LogException(ex, "DashboardViewModel.ScanSteamGamesAsync");
 			StatusMessage = "Steam scan failed";
 			System.Windows.MessageBox.Show("Steam scan failed." + Environment.NewLine + Environment.NewLine + ex.Message, "Scan Steam Games", MessageBoxButton.OK, MessageBoxImage.Hand);
 		}
+        finally { ScanFinished(); }
 	}
 
 	private async Task LoadThemesAsync()
@@ -7242,15 +7252,36 @@ public sealed class DashboardViewModel : ObservableObject
 		RefreshDerivedLists();
 	}
 
-	private void SyncGamesCollectionFromLibrary()
-	{
-		Games.Clear();
-		int num = 0;
-		foreach (GameMetadata game in _library.Games)
-		{
-			Games.Add(new GameCardViewModel(game, _accentBrushes[num++ % _accentBrushes.Count]));
-		}
-	}
+    private bool _batchGamesUpdate;
+    private void SyncGamesCollectionFromLibrary()
+    {
+        _batchGamesUpdate = true;
+        try
+        {
+            Games.Clear();
+            var index = 0;
+            foreach (var game in _library.Games) Games.Add(new GameCardViewModel(game, _accentBrushes[index++ % _accentBrushes.Count]));
+        }
+        finally { _batchGamesUpdate = false; }
+        RefreshDerivedLists();
+    }
+
+    private void MergeSteamScan(GameLibrary scanned)
+    {
+        foreach (var game in scanned.Games.Where(g => string.Equals(g.LaunchType, "Steam", StringComparison.OrdinalIgnoreCase)))
+        {
+            var current = _library.Games.FirstOrDefault(g => g.Id == game.Id || (!string.IsNullOrEmpty(g.SteamAppId) && g.SteamAppId == game.SteamAppId));
+            if (current == null) { _library.Games.Add(game); continue; }
+            // Keep favorites, playtime and custom edits made while the scan was running.
+            current.InstallPath = game.InstallPath;
+            current.LaunchCommand = game.LaunchCommand;
+            current.WorkingDirectory = game.WorkingDirectory;
+            if (string.IsNullOrWhiteSpace(current.CoverArtPath)) current.CoverArtPath = game.CoverArtPath;
+            if (string.IsNullOrWhiteSpace(current.HeaderImagePath)) current.HeaderImagePath = game.HeaderImagePath;
+            if (string.IsNullOrWhiteSpace(current.BackgroundArtPath)) current.BackgroundArtPath = game.BackgroundArtPath;
+            if (string.IsNullOrWhiteSpace(current.LogoImagePath)) current.LogoImagePath = game.LogoImagePath;
+        }
+    }
 
 	private void WriteSteamScanDebugReport(SteamGameScanResult result)
 	{
@@ -7305,7 +7336,7 @@ public sealed class DashboardViewModel : ObservableObject
 			StringBuilder stringBuilder10 = stringBuilder2;
 			handler = new StringBuilder.AppendInterpolatedStringHandler(19, 1, stringBuilder2);
 			handler.AppendLiteral("library file path: ");
-			handler.AppendFormatted(Path.Combine(AppPaths.AppFolder, "UserData", "library.json"));
+			handler.AppendFormatted(Path.Combine(AppPaths.UserDataFolder, "library.json"));
 			stringBuilder10.AppendLine(ref handler);
 			File.WriteAllText(SteamScanDebugLogPath, stringBuilder.ToString());
 		}
@@ -7376,7 +7407,7 @@ public sealed class DashboardViewModel : ObservableObject
 
 	private void OnGamesChanged(object? sender, NotifyCollectionChangedEventArgs e)
 	{
-		RefreshDerivedLists();
+		if (!_batchGamesUpdate) RefreshDerivedLists();
 	}
 
 	private void RunningGameService_OnStateChanged(object? sender, EventArgs e)
@@ -7483,4 +7514,20 @@ public sealed class DashboardViewModel : ObservableObject
 			return SpotifyMirrorScheme + Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this)));
 		}
 	}
+    private bool _disposed;
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _scanCancellation?.Cancel();
+        _musicTimer.Stop();
+        _dashPartyInviteTimer.Stop();
+        _audioAnalysisService.FrameReady -= AudioAnalysis_OnFrameReady;
+        _audioAnalysisService.Dispose();
+        _musicPlayer.Close();
+        Games.CollectionChanged -= OnGamesChanged;
+        _runningGameService.StateChanged -= RunningGameService_OnStateChanged;
+        (_runningGameService as IDisposable)?.Dispose();
+    }
+
 }

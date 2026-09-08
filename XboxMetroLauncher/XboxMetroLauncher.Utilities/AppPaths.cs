@@ -38,13 +38,13 @@ internal static class AppPaths
 
 	public static string UserDataFolder => EnsureFolder(ResolveUserDataFolder());
 
-	public static string LogsFolder => EnsureFolder(Path.Combine(AppFolder, "Logs"));
+	public static string LogsFolder => Path.Combine(ResolveUserDataFolder(), "Logs");
 
 	public static bool IsPartyLinkTestInstance => HasCommandLineSwitch("--party-link-test") || string.Equals(Environment.GetEnvironmentVariable("DASHX360_PARTY_LINK_TEST"), "1", StringComparison.OrdinalIgnoreCase);
 
 	public static IReadOnlyList<string> LegacyDataRoots()
 	{
-		return LegacyUserDataFolders.Where((string path) => !string.IsNullOrWhiteSpace(path)).Select(Path.GetFullPath).Distinct<string>(StringComparer.OrdinalIgnoreCase)
+		return new[] { Path.Combine(AppFolder, "UserData") }.Concat(LegacyUserDataFolders).Where((string path) => !string.IsNullOrWhiteSpace(path)).Select(Path.GetFullPath).Distinct<string>(StringComparer.OrdinalIgnoreCase)
 			.ToList();
 	}
 
@@ -87,10 +87,34 @@ internal static class AppPaths
 	{
 		if (!Path.IsPathRooted(path))
 		{
-			return Path.Combine(AppFolder, path);
+			var writable = Path.Combine(UserDataFolder, path);
+            return File.Exists(writable) ? writable : Path.Combine(AppFolder, path);
 		}
 		return path;
 	}
+
+    public static string WritableFolder(string relativePath)
+    {
+        var destination = SafePaths.Within(UserDataFolder, relativePath);
+        Directory.CreateDirectory(destination);
+        return destination;
+    }
+
+    public static void MigrateMutableAssets()
+    {
+        foreach (var relative in new[] { Path.Combine("Assets", "Custom Files"), Path.Combine("Assets", "GameArt", "Steam") })
+        {
+            var source = Path.Combine(AppFolder, relative);
+            var destination = SafePaths.Within(UserDataFolder, relative);
+            if (!Directory.Exists(source) || Directory.Exists(destination)) continue;
+            foreach (var file in Directory.EnumerateFiles(source, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+            {
+                var target = SafePaths.Within(destination, Path.GetRelativePath(source, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: false);
+            }
+        }
+    }
 
 	private static void AddRoot(List<string> roots, string? path)
 	{
@@ -116,7 +140,9 @@ internal static class AppPaths
 		{
 			return Path.GetFullPath(text2);
 		}
-		return Path.Combine(AppFolder, "UserData");
+		return HasCommandLineSwitch("--portable")
+            ? Path.Combine(AppFolder, "UserData")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DashX360", "UserData");
 	}
 
 	private static string? GetCommandLineOption(string optionName)

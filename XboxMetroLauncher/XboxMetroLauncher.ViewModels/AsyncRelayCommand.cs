@@ -46,6 +46,12 @@ public sealed class AsyncRelayCommand : ICommand
 			RaiseCanExecuteChanged();
 			await _execute(parameter);
 		}
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            App.LogException(ex, "AsyncRelayCommand");
+            System.Windows.MessageBox.Show("The action could not be completed: " + ex.Message, "DashX360");
+        }
 		finally
 		{
 			_isRunning = false;

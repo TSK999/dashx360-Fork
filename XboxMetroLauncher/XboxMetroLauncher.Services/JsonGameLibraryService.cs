@@ -16,20 +16,18 @@ public sealed class JsonGameLibraryService : IGameLibraryService
 
 	private readonly IJsonStore _store;
 
-	private readonly string _libraryPath;
 
 	public JsonGameLibraryService(IJsonStore store)
 	{
 		_store = store;
-		_libraryPath = Path.Combine(AppPaths.UserDataFolder, "library.json");
 	}
 
 	public async Task<GameLibrary> LoadAsync(CancellationToken cancellationToken = default(CancellationToken))
 	{
-		GameLibrary gameLibrary = await ReadLibraryFileAsync(_libraryPath, cancellationToken);
+		var root = await _store.ReadAsync<JsonElement>(LibraryFileName, cancellationToken).ConfigureAwait(false);
+        GameLibrary? gameLibrary = root.ValueKind == JsonValueKind.Array ? new GameLibrary { Games = root.Deserialize<List<GameMetadata>>(ReadOptions) ?? new() } : root.ValueKind == JsonValueKind.Object ? root.Deserialize<GameLibrary>(ReadOptions) : null;
 		if (gameLibrary != null)
 		{
-			await SaveAsync(gameLibrary, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			return gameLibrary;
 		}
 		string path = AppPaths.FindFile(Path.Combine("Data", "library.seed.json"));
@@ -67,37 +65,25 @@ public sealed class JsonGameLibraryService : IGameLibraryService
 		{
 			return new GameLibrary
 			{
-				Games = root.Deserialize<List<GameMetadata>>() ?? new List<GameMetadata>()
+				Games = root.Deserialize<List<GameMetadata>>(ReadOptions) ?? new List<GameMetadata>()
 			};
 		}
 		if (root.ValueKind == JsonValueKind.Object)
 		{
-			return root.Deserialize<GameLibrary>();
+			return root.Deserialize<GameLibrary>(ReadOptions);
 		}
 		return null;
 	}
 
-	public Task<IReadOnlyList<GameMetadata>> ScanFolderAsync(string folderPath, CancellationToken cancellationToken = default(CancellationToken))
-	{
-		if (!Directory.Exists(folderPath))
-		{
-			return Task.FromResult((IReadOnlyList<GameMetadata>)Array.Empty<GameMetadata>());
-		}
-		HashSet<string> ignoredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "UnityCrashHandler64", "UnityCrashHandler32", "CrashReportClient", "unins000", "uninstall" };
-		return Task.FromResult((IReadOnlyList<GameMetadata>)(from path in Directory.EnumerateFiles(folderPath, "*.exe", SearchOption.AllDirectories)
-			where !ignoredNames.Contains(Path.GetFileNameWithoutExtension(path))
-			select new GameMetadata
-			{
-				Title = CleanTitle(Path.GetFileNameWithoutExtension(path)),
-				LaunchType = "Exe",
-				ExecutablePath = path,
-				WorkingDirectory = (Path.GetDirectoryName(path) ?? folderPath),
-				Platform = "PC",
-				Genre = "Imported"
-			} into game
-			orderby game.Title
-			select game).ToList());
-	}
+    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
+    public Task<IReadOnlyList<GameMetadata>> ScanFolderAsync(string folderPath, CancellationToken cancellationToken = default, IProgress<LibraryScanProgress>? progress = null) => Task.Run<IReadOnlyList<GameMetadata>>(() =>
+    {
+        var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "UnityCrashHandler64", "UnityCrashHandler32", "CrashReportClient", "unins000", "uninstall" };
+        return LibraryScan.FindExecutables(folderPath, cancellationToken, progress)
+            .Where(path => !ignored.Contains(Path.GetFileNameWithoutExtension(path)))
+            .Select(path => new GameMetadata { Title = CleanTitle(Path.GetFileNameWithoutExtension(path)), LaunchType = "Exe", ExecutablePath = path, WorkingDirectory = Path.GetDirectoryName(path) ?? folderPath, Platform = "PC", Genre = "Imported" })
+            .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }, cancellationToken);
 
 	private static string CleanTitle(string value)
 	{

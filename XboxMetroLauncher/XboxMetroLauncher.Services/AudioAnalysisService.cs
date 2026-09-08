@@ -1,4 +1,5 @@
 using System;
+using XboxMetroLauncher.Utilities;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -143,13 +144,12 @@ public sealed class AudioAnalysisService : IDisposable
 
 	private static readonly Guid KsdSubTypePcm = new Guid("00000001-0000-0010-8000-00aa00389b71");
 
-	private readonly object _sync = new object();
+	private readonly CaptureWorker _worker;
+
+    public AudioAnalysisService() => _worker = new CaptureWorker(CaptureLoop, ex => App.LogException(ex, "AudioAnalysisService.Capture"));
 
 	private readonly float[] _analysisBuffer = new float[4096];
 
-	private Thread? _thread;
-
-	private CancellationTokenSource? _cts;
 
 	private int _bufferWriteIndex;
 
@@ -167,64 +167,11 @@ public sealed class AudioAnalysisService : IDisposable
 
 	private double _lastLoudness;
 
-	public bool IsRunning
-	{
-		get
-		{
-			lock (_sync)
-			{
-				return _thread?.IsAlive ?? false;
-			}
-		}
-	}
-
-	public event EventHandler<AudioAnalysisFrame>? FrameReady;
-
-	public void Start()
-	{
-		lock (_sync)
-		{
-			Thread? thread = _thread;
-			if (thread == null || !thread.IsAlive)
-			{
-				_cts = new CancellationTokenSource();
-				_thread = new Thread((ThreadStart)delegate
-				{
-					CaptureLoop(_cts.Token);
-				})
-				{
-					IsBackground = true,
-					Name = "Metro audio analyzer"
-				};
-				_thread.SetApartmentState(ApartmentState.MTA);
-				_thread.Start();
-			}
-		}
-	}
-
-	public void Stop()
-	{
-		CancellationTokenSource cts;
-		Thread thread;
-		lock (_sync)
-		{
-			cts = _cts;
-			thread = _thread;
-			_cts = null;
-			_thread = null;
-		}
-		cts?.Cancel();
-		if (thread != null && thread.IsAlive)
-		{
-			thread.Join(250);
-		}
-		cts?.Dispose();
-	}
-
-	public void Dispose()
-	{
-		Stop();
-	}
+    public bool IsRunning => _worker.IsRunning;
+    public event EventHandler<AudioAnalysisFrame>? FrameReady;
+    public void Start() => _worker.Start();
+    public void Stop() => _worker.Stop();
+    public void Dispose() => _worker.Dispose();
 
 	private void CaptureLoop(CancellationToken token)
 	{

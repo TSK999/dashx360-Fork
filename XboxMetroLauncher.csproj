@@ -3,6 +3,7 @@
     <AssemblyName>DashX360</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <OutputType>WinExe</OutputType>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>false</ImplicitUsings>
@@ -78,4 +79,7 @@
     <Copy SourceFiles="@(LooseAsset)" DestinationFiles="@(LooseAsset->'$(PublishDir)Assets\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(LooseData)" DestinationFiles="@(LooseData->'$(PublishDir)Data\%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
+  <ItemGroup>
+    <ProjectReference Include="DashX360.Core/DashX360.Core.csproj" />
+  </ItemGroup>
 </Project>

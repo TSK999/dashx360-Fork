@@ -232,7 +232,7 @@ public sealed class SocialIntegrationManager
 		Dictionary<string, SocialFriend> dictionary = new Dictionary<string, SocialFriend>(StringComparer.OrdinalIgnoreCase);
 		foreach (SocialFriend friend in friends)
 		{
-			string text = friend.Source + ":" + friend.DisplayName;
+			string text = friend.Source + ":" + (string.IsNullOrWhiteSpace(friend.Id) ? friend.DisplayName : friend.Id);
 			if (!dictionary.TryGetValue(text, out SocialFriend? existing) || (!existing.IsOnline && friend.IsOnline))
 			{
 				dictionary[text] = friend;

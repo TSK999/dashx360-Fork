@@ -1,0 +1,43 @@
+name: Build and regression checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet run --project tests/DashX360.CoreTests -c Release
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build WPF application
+        run: dotnet build XboxMetroLauncher.csproj -c Release
+      - name: Windows integration regressions
+        run: dotnet run --project tests/DashX360.WindowsTests -c Release
+      - name: Verify publish output
+        run: dotnet publish XboxMetroLauncher.csproj -c Release --no-build -o Build/publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DashX360-windows-x64
+          path: Build/publish/
+          retention-days: 7

@@ -252,44 +252,45 @@ public sealed class SteamCommunityService : ISteamCommunityService
 
 	private static readonly TimeSpan GameDetailsCacheAge = TimeSpan.FromHours(12.0);
 
-	private static readonly HttpClient Http = new HttpClient
+	private static readonly HttpClient DefaultHttp = new HttpClient
 	{
 		Timeout = TimeSpan.FromSeconds(8.0)
 	};
 
-	private readonly string _configPath;
+	private readonly HttpClient Http;
+
+    private readonly string _configPath;
 
 	private readonly string _cacheFolder;
 
 	public string LastStatusMessage { get; private set; } = string.Empty;
 
-	public bool IsConfigured
-	{
-		get
-		{
-			try
-			{
-				if (!File.Exists(_configPath))
-				{
-					return false;
-				}
-				SteamCommunityConfig steamCommunityConfig = JsonSerializer.Deserialize<SteamCommunityConfig>(File.ReadAllText(_configPath), JsonOptions);
-				return steamCommunityConfig != null && HasCredentials(steamCommunityConfig);
-			}
-			catch
-			{
-				return false;
-			}
-		}
-	}
+    public bool IsConfigured => HasCredentials(_loadedConfig);
+    private SteamCommunityConfig _loadedConfig = new();
+    private sealed class StoredConfig
+    {
+        public string SteamId64 { get; set; } = string.Empty;
+        public string ProtectedApiKey { get; set; } = string.Empty;
+        public string? SteamApiKey { get; set; }
+    }
 
-	public SteamCommunityService()
-	{
-		_configPath = Path.Combine(AppPaths.UserDataFolder, "steam-web-config.json");
-		_cacheFolder = Path.Combine(AppPaths.UserDataFolder, "SteamCache");
-		Directory.CreateDirectory(_cacheFolder);
-		EnsureConfigExample();
-	}
+    public SteamCommunityService(HttpClient? http = null, string? dataRoot = null)
+    {
+        Http = http ?? DefaultHttp;
+        dataRoot ??= AppPaths.UserDataFolder;
+        _configPath = Path.Combine(dataRoot, "steam-web-config.json");
+        _cacheFolder = Path.Combine(dataRoot, "SteamCache");
+        Directory.CreateDirectory(_cacheFolder);
+        EnsureConfigExample();
+        _loadedConfig = LoadConfigAsync().GetAwaiter().GetResult();
+    }
+
+    private string AccountCache(SteamCommunityConfig config, params string[] segments)
+    {
+        if (!ulong.TryParse(config.SteamId64, out var id) || id < 76561197960265728UL)
+            throw new InvalidDataException("Enter a valid SteamID64 in Steam setup.");
+        return SafePaths.Within(_cacheFolder, Path.Combine(new[] { "Accounts", id.ToString(CultureInfo.InvariantCulture) }.Concat(segments).ToArray()));
+    }
 
 	public async Task<IReadOnlyList<SocialFriend>> LoadFriendsAsync(CancellationToken cancellationToken = default(CancellationToken))
 	{
@@ -300,7 +301,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			LastStatusMessage = "Steam friends need UserData\\steam-web-config.json";
 			return Array.Empty<SocialFriend>();
 		}
-		string cachePath = Path.Combine(_cacheFolder, "friends.json");
+		string cachePath = AccountCache(config, "friends.json");
 		List<SocialFriend> list = await ReadFreshCacheAsync<List<SocialFriend>>(cachePath, FriendsCacheAge, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (list != null && list.Any(HasStaleSteamFriendCache))
 		{
@@ -314,13 +315,20 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		{
 			List<string> list2 = (from id in (await GetJsonAsync<SteamFriendsResponse>($"https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key={Uri.EscapeDataString(config.SteamApiKey)}&steamid={Uri.EscapeDataString(config.SteamId64)}&relationship=friend", cancellationToken).ConfigureAwait(continueOnCapturedContext: false))?.FriendsList?.Friends?.Select((SteamFriendEntry friend) => friend.SteamId)
 				where !string.IsNullOrWhiteSpace(id)
-				select id).Distinct<string>(StringComparer.OrdinalIgnoreCase).Take(100).ToList() ?? new List<string>();
+				select id).Distinct<string>(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
 			if (list2.Count == 0)
 			{
 				await WriteCacheAsync(cachePath, new List<SocialFriend>(), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 				return Array.Empty<SocialFriend>();
 			}
-			List<SteamPlayerSummary> source = (await GetJsonAsync<SteamPlayerSummariesResponse>("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=" + Uri.EscapeDataString(config.SteamApiKey) + "&steamids=" + Uri.EscapeDataString(string.Join(',', list2)), cancellationToken).ConfigureAwait(continueOnCapturedContext: false))?.Response?.Players ?? new List<SteamPlayerSummary>();
+            var source = new List<SteamPlayerSummary>();
+            foreach (var batch in list2.Chunk(100))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var response = await GetJsonAsync<SteamPlayerSummariesResponse>("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=" + Uri.EscapeDataString(config.SteamApiKey) + "&steamids=" + Uri.EscapeDataString(string.Join(',', batch)), cancellationToken).ConfigureAwait(false);
+                source.AddRange(response?.Response?.Players ?? new List<SteamPlayerSummary>());
+            }
+
 			List<SocialFriend> mapped = (from friend in source.Select(MapPlayer).Select(NormalizeSteamFriendDisplay)
 				orderby friend.IsOnline descending
 				select friend).ThenBy<SocialFriend, string>((SocialFriend friend) => friend.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -328,6 +336,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			await WriteCacheAsync(cachePath, mapped, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			return mapped;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch (Exception ex)
 		{
 			LastStatusMessage = "Steam friends unavailable: " + ex.Message;
@@ -335,12 +344,12 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		}
 	}
 
-	public async Task SaveConfigAsync(SteamCommunityConfig config, CancellationToken cancellationToken = default(CancellationToken))
-	{
-		Directory.CreateDirectory(Path.GetDirectoryName(_configPath));
-		await using FileStream stream = File.Create(_configPath);
-		await JsonSerializer.SerializeAsync(stream, config, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-	}
+    public async Task SaveConfigAsync(SteamCommunityConfig config, CancellationToken cancellationToken = default)
+    {
+        var stored = new StoredConfig { SteamId64 = config.SteamId64.Trim(), ProtectedApiKey = SecureStringStorage.Protect(config.SteamApiKey) };
+        await StorageLock.RunAsync(Path.GetDirectoryName(_configPath)!, () => AtomicFile.WriteJsonAsync(_configPath, stored, JsonOptions, cancellationToken), cancellationToken).ConfigureAwait(false);
+        _loadedConfig = new SteamCommunityConfig { SteamId64 = stored.SteamId64, SteamApiKey = config.SteamApiKey };
+    }
 
 	public async Task<SteamConnectionTestResult> TestConnectionAsync(SteamCommunityConfig config, CancellationToken cancellationToken = default(CancellationToken))
 	{
@@ -371,6 +380,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 				Message = "Connected as " + text + "."
 			};
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch (Exception ex)
 		{
 			return new SteamConnectionTestResult
@@ -401,7 +411,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			LastStatusMessage = "This game does not have a Steam AppID.";
 			return Array.Empty<SteamAchievementItem>();
 		}
-		string cachePath = Path.Combine(_cacheFolder, "Achievements", safeAppId + ".json");
+		string cachePath = AccountCache(config, "Achievements", safeAppId + ".json");
 		List<SteamAchievementItem> list = await ReadFreshCacheAsync<List<SteamAchievementItem>>(cachePath, AchievementsCacheAge, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (list != null)
 		{
@@ -427,6 +437,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			await WriteCacheAsync(cachePath, achievements, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			return achievements;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch (Exception ex)
 		{
 			return await LoadAchievementSchemaFallbackAsync(config, safeAppId, cachePath, "Steam unlock status unavailable: " + FriendlySteamError(ex), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
@@ -461,9 +472,9 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		SteamCommunityConfig config = await LoadConfigAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (!HasCredentials(config))
 		{
-			return await LoadLocalSteamPlaytimeAsync(safeAppId, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+			return await LoadLocalSteamPlaytimeAsync(safeAppId, config.SteamId64, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		}
-		string cachePath = Path.Combine(_cacheFolder, "owned-games.json");
+		string cachePath = AccountCache(config, "owned-games.json");
 		SteamOwnedGamesResponse ownedGames = await ReadFreshCacheAsync<SteamOwnedGamesResponse>(cachePath, GameDetailsCacheAge, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		if (ownedGames == null)
 		{
@@ -475,7 +486,8 @@ public sealed class SteamCommunityService : ISteamCommunityService
 					await WriteCacheAsync(cachePath, ownedGames, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 				}
 			}
-			catch
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+		catch
 			{
 				ownedGames = await ReadCacheAsync<SteamOwnedGamesResponse>(cachePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			}
@@ -485,23 +497,24 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		{
 			return TimeSpan.FromMinutes(steamOwnedGame.PlaytimeForever);
 		}
-		return await LoadLocalSteamPlaytimeAsync(safeAppId, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		return await LoadLocalSteamPlaytimeAsync(safeAppId, config.SteamId64, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 	}
 
-	private static async Task<TimeSpan?> LoadLocalSteamPlaytimeAsync(string safeAppId, CancellationToken cancellationToken)
+	private static async Task<TimeSpan?> LoadLocalSteamPlaytimeAsync(string safeAppId, string steamId64, CancellationToken cancellationToken)
 	{
 		string text = FindSteamPath();
 		if (string.IsNullOrWhiteSpace(text))
 		{
 			return null;
 		}
-		string path = Path.Combine(text, "userdata");
+		if (!ulong.TryParse(steamId64, out var account) || account < 76561197960265728UL) return null;
+        string path = Path.Combine(text, "userdata", (account - 76561197960265728UL).ToString(CultureInfo.InvariantCulture), "config");
 		if (!Directory.Exists(path))
 		{
 			return null;
 		}
 		int bestMinutes = 0;
-		foreach (string item in Directory.EnumerateFiles(path, "localconfig.vdf", SearchOption.AllDirectories))
+		foreach (string item in Directory.EnumerateFiles(path, "localconfig.vdf", SearchOption.TopDirectoryOnly))
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			string input;
@@ -509,7 +522,8 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			{
 				input = await File.ReadAllTextAsync(item, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			}
-			catch
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+		catch
 			{
 				continue;
 			}
@@ -545,7 +559,8 @@ public sealed class SteamCommunityService : ISteamCommunityService
 					await WriteCacheAsync(cachePath, cached, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 				}
 			}
-			catch
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+		catch
 			{
 				cached = await ReadCacheAsync<SteamStoreAppDetails>(cachePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			}
@@ -613,6 +628,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			await WriteCacheAsync(cachePath, mapped, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			return mapped;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch
 		{
 			IReadOnlyList<SteamGameDlc> readOnlyList = await ReadCacheAsync<List<SteamGameDlc>>(cachePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
@@ -664,6 +680,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			await WriteCacheAsync(cachePath, items, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			return items;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch
 		{
 			return (await ReadCacheAsync<List<SteamGameDlc>>(cachePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false)) ?? new List<SteamGameDlc>();
@@ -710,7 +727,8 @@ public sealed class SteamCommunityService : ISteamCommunityService
 					await WriteCacheAsync(cachePath, cached, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 				}
 			}
-			catch
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+		catch
 			{
 				cached = await ReadCacheAsync<SteamReviewResponse>(cachePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			}
@@ -769,6 +787,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 			}
 			IL_0512:;
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch
 		{
 			return File.Exists(path) ? path : string.Empty;
@@ -840,6 +859,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 				return achievements;
 			}
 		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 		catch (Exception ex)
 		{
 			LastStatusMessage = reason + " Public achievement list unavailable: " + FriendlySteamError(ex);
@@ -955,7 +975,7 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		}
 	}
 
-	private static async Task<SocialFriend> CacheSteamAvatarAsync(SocialFriend friend, string avatarFolder, SemaphoreSlim gate, CancellationToken cancellationToken)
+	private async Task<SocialFriend> CacheSteamAvatarAsync(SocialFriend friend, string avatarFolder, SemaphoreSlim gate, CancellationToken cancellationToken)
 	{
 		if (friend.Source != SocialFriendSource.Steam || !TryCreateHttpUri(friend.AvatarPathOrUrl, out Uri uri))
 		{
@@ -982,7 +1002,8 @@ public sealed class SteamCommunityService : ISteamCommunityService
 				await using FileStream file = File.Create(localPath);
 				await stream.CopyToAsync(file, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 			}
-			catch
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+		catch
 			{
 				return friend;
 			}
@@ -1046,30 +1067,40 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		return "steam-friend";
 	}
 
-	public async Task<SteamCommunityConfig> LoadConfigAsync(CancellationToken cancellationToken = default(CancellationToken))
-	{
-		if (!File.Exists(_configPath))
-		{
-			return new SteamCommunityConfig();
-		}
-		SteamCommunityConfig result;
-		await using (FileStream stream = File.OpenRead(_configPath))
-		{
-			result = (await JsonSerializer.DeserializeAsync<SteamCommunityConfig>(stream, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false)) ?? new SteamCommunityConfig();
-		}
-		return result;
-	}
+    public async Task<SteamCommunityConfig> LoadConfigAsync(CancellationToken cancellationToken = default)
+    {
+        return await StorageLock.RunAsync(Path.GetDirectoryName(_configPath)!, async () =>
+        {
+            if (!File.Exists(_configPath)) return _loadedConfig = new SteamCommunityConfig();
+            try
+            {
+                await using var stream = new FileStream(_configPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                var stored = await JsonSerializer.DeserializeAsync<StoredConfig>(stream, JsonOptions, cancellationToken).ConfigureAwait(false) ?? new StoredConfig();
+                var config = new SteamCommunityConfig { SteamId64 = stored.SteamId64, SteamApiKey = !string.IsNullOrWhiteSpace(stored.ProtectedApiKey) ? SecureStringStorage.Unprotect(stored.ProtectedApiKey) : stored.SteamApiKey ?? string.Empty };
+                if (!string.IsNullOrWhiteSpace(stored.ProtectedApiKey) && string.IsNullOrWhiteSpace(config.SteamApiKey))
+                    LastStatusMessage = "Re-enter your Steam API key in Steam setup for this Windows account.";
+                if (!string.IsNullOrWhiteSpace(stored.SteamApiKey)) await SaveConfigAsync(config, cancellationToken).ConfigureAwait(false);
+                return _loadedConfig = config;
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
+                App.LogException(ex, "SteamCommunityService.LoadConfig");
+                LastStatusMessage = "Steam setup could not be read. Re-enter your Steam details.";
+                return _loadedConfig = new SteamCommunityConfig();
+            }
+        }, cancellationToken).ConfigureAwait(false);
+    }
 
 	private static bool HasCredentials(SteamCommunityConfig config)
 	{
 		if (!string.IsNullOrWhiteSpace(config.SteamApiKey))
 		{
-			return !string.IsNullOrWhiteSpace(config.SteamId64);
+			return ulong.TryParse(config.SteamId64, out var id) && id >= 76561197960265728UL;
 		}
 		return false;
 	}
 
-	private static async Task<T?> GetJsonAsync<T>(string uri, CancellationToken cancellationToken)
+	private async Task<T?> GetJsonAsync<T>(string uri, CancellationToken cancellationToken)
 	{
 		T result;
 		await using (Stream stream = await Http.GetStreamAsync(uri, cancellationToken).ConfigureAwait(continueOnCapturedContext: false))
@@ -1088,30 +1119,24 @@ public sealed class SteamCommunityService : ISteamCommunityService
 		return await ReadCacheAsync<T>(path, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 	}
 
-	private static async Task<T?> ReadCacheAsync<T>(string path, CancellationToken cancellationToken)
-	{
-		if (!File.Exists(path))
-		{
-			return default(T);
-		}
-		T result;
-		await using (FileStream stream = File.OpenRead(path))
-		{
-			result = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		}
-		return result;
-	}
+    private static async Task<T?> ReadCacheAsync<T>(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(path)) return default;
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            return await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        { App.LogException(ex, "SteamCommunityService.CacheMiss"); return default; }
+    }
 
-	private static async Task WriteCacheAsync<T>(string path, T value, CancellationToken cancellationToken)
-	{
-		Directory.CreateDirectory(Path.GetDirectoryName(path));
-		await using FileStream stream = File.Create(path);
-		await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-	}
+    private static Task WriteCacheAsync<T>(string path, T value, CancellationToken cancellationToken) =>
+        StorageLock.RunAsync(Path.GetDirectoryName(path)!, () => AtomicFile.WriteJsonAsync(path, value, JsonOptions, cancellationToken), cancellationToken);
 
 	private void EnsureConfigExample()
 	{
-		string path = Path.Combine(AppPaths.UserDataFolder, "steam-web-config.example.json");
+		string path = Path.Combine(Path.GetDirectoryName(_configPath)!, "steam-web-config.example.json");
 		if (!File.Exists(path))
 		{
 			SteamCommunityConfig value = new SteamCommunityConfig

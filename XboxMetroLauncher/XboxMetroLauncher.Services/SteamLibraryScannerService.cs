@@ -22,13 +22,15 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 
 	private sealed record SteamArtworkFileResult(string? FinalAssetPath, string? LocalSourcePath, string? DownloadedPath);
 
-	private static readonly HttpClient HttpClient = new HttpClient();
+	private static readonly HttpClient HttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
 
 	private static readonly string SteamArtworkDebugLogPath = Path.Combine(AppPaths.LogsFolder, "steam-art-debug.log");
 
 	private static readonly string[] FallbackSteamPaths = new string[2] { "C:\\Program Files (x86)\\Steam", "C:\\Program Files\\Steam" };
 
-	public async Task<SteamGameScanResult> ScanAsync(GameLibrary library, CancellationToken cancellationToken = default(CancellationToken))
+	public Task<SteamGameScanResult> ScanAsync(GameLibrary library, CancellationToken cancellationToken = default, IProgress<LibraryScanProgress>? progress = null) => Task.Run(() => ScanCoreAsync(library, cancellationToken, progress), cancellationToken);
+
+    private async Task<SteamGameScanResult> ScanCoreAsync(GameLibrary library, CancellationToken cancellationToken, IProgress<LibraryScanProgress>? progress)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		string steamPath = FindSteamPath();
@@ -65,8 +67,10 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 		handler.AppendLiteral("steam path: ");
 		handler.AppendFormatted(steamPath);
 		stringBuilder3.AppendLine(ref handler);
-		foreach (string item in list)
+		int completed = 0;
+        foreach (string item in list)
 		{
+            progress?.Report(new LibraryScanProgress(++completed, Path.GetFileName(item)));
 			cancellationToken.ThrowIfCancellationRequested();
 			SteamManifestEntry entry;
 			try
@@ -83,7 +87,10 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 				skipped++;
 				continue;
 			}
-			string installPath = Path.Combine(Path.GetDirectoryName(item), "common", entry.InstallDir);
+			if (!uint.TryParse(entry.AppId, out _)) { skipped++; continue; }
+            string installPath;
+            try { installPath = SafePaths.Within(Path.Combine(Path.GetDirectoryName(item)!, "common"), entry.InstallDir); }
+            catch (InvalidDataException) { skipped++; continue; }
 			if (!Directory.Exists(installPath) || !await IsInstalledSteamGameAsync(entry, cancellationToken))
 			{
 				skipped++;
@@ -316,7 +323,7 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 	private static async Task<SteamArtworkResult> ResolveArtworkAsync(string steamPath, string appId, CancellationToken cancellationToken)
 	{
 		string localCacheRoot = Path.Combine(steamPath, "appcache", "librarycache");
-		string appCacheRoot = Path.Combine(AppPaths.AppFolder, "Assets", "GameArt", "Steam", appId);
+		string appCacheRoot = AppPaths.WritableFolder(Path.Combine("Assets", "GameArt", "Steam", appId));
 		Directory.CreateDirectory(appCacheRoot);
 		return new SteamArtworkResult(await ResolveArtworkFileAsync(localCacheRoot, appCacheRoot, appId, "cover", new _003C_003Ez__ReadOnlyArray<string>(new string[2]
 		{
@@ -384,6 +391,7 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 					File.Delete(destinationPath);
 				}
 			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
 			catch
 			{
 			}
@@ -424,7 +432,7 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 		{
 			return existingPath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).StartsWith(text, StringComparison.OrdinalIgnoreCase);
 		}
-		string path = Path.Combine(AppPaths.AppFolder, text);
+		string path = Path.Combine(AppPaths.UserDataFolder, text);
 		return Path.GetFullPath(existingPath).StartsWith(Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
 	}
 
@@ -449,13 +457,13 @@ public sealed class SteamLibraryScannerService : ISteamLibraryScannerService
 		{
 			return existingPath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).StartsWith(text, StringComparison.OrdinalIgnoreCase);
 		}
-		string path = Path.Combine(AppPaths.AppFolder, text);
+		string path = Path.Combine(AppPaths.UserDataFolder, text);
 		return Path.GetFullPath(existingPath).StartsWith(Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static string MakePortableAssetPath(string appId, string fileName)
 	{
-		return Path.Combine("Assets", "GameArt", "Steam", appId, fileName);
+		return Path.Combine(AppPaths.UserDataFolder, "Assets", "GameArt", "Steam", appId, fileName);
 	}
 
 	private static bool IsValidArtworkFile(string? path)

@@ -23,7 +23,7 @@ public sealed class ThemeService : IThemeService
 
 	public ThemeService()
 	{
-		_themesRoot = AppPaths.FindFolder(Path.Combine("Assets", "Custom Files", "Themes"));
+		_themesRoot = AppPaths.WritableFolder(Path.Combine("Assets", "Custom Files", "Themes"));
 		Directory.CreateDirectory(_themesRoot);
 	}
 
@@ -61,8 +61,8 @@ public sealed class ThemeService : IThemeService
 	public async Task<DashboardTheme> CreateThemeAsync(string themeName, string? homeImagePath, string? gamesImagePath, string? settingsImagePath, string? appsImagePath, CancellationToken cancellationToken = default(CancellationToken))
 	{
 		string safeName = (string.IsNullOrWhiteSpace(themeName) ? "Custom Theme" : themeName.Trim());
-		string path = CreateSafeFolderName(safeName);
-		string folderPath = Path.Combine(_themesRoot, path);
+		string path = "theme-" + Guid.NewGuid().ToString("N");
+		string folderPath = SafePaths.Within(_themesRoot, path);
 		Directory.CreateDirectory(folderPath);
 		DashboardThemeManifest manifest = new DashboardThemeManifest
 		{
@@ -72,10 +72,7 @@ public sealed class ThemeService : IThemeService
 		await SaveThemeImageAsync(gamesImagePath, Path.Combine(folderPath, manifest.GamesImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		await SaveThemeImageAsync(settingsImagePath, Path.Combine(folderPath, manifest.SettingsImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		await SaveThemeImageAsync(appsImagePath, Path.Combine(folderPath, manifest.AppsImage), cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await using (FileStream stream = File.Create(Path.Combine(folderPath, "theme.json")))
-		{
-			await JsonSerializer.SerializeAsync(stream, manifest, JsonOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		}
+		await AtomicFile.WriteJsonAsync(Path.Combine(folderPath, "theme.json"), manifest, JsonOptions, cancellationToken);
 		return new DashboardTheme
 		{
 			Name = safeName,
@@ -125,12 +122,12 @@ public sealed class ThemeService : IThemeService
 		{
 			return string.Empty;
 		}
-		string path = Path.Combine(folderPath, fileName);
+		string path = SafePaths.Within(folderPath, fileName);
 		if (!File.Exists(path))
 		{
 			return string.Empty;
 		}
-		return Path.GetRelativePath(AppPaths.AppFolder, path);
+		return path;
 	}
 
 	private static async Task SaveThemeImageAsync(string? sourcePath, string destinationPath, CancellationToken cancellationToken)

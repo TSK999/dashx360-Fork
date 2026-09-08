@@ -148,7 +148,7 @@ public sealed class ControllerInputService : IDisposable
 
 	private static readonly TimeSpan MoveRepeatDelay = TimeSpan.FromMilliseconds(185.0);
 
-	private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(95.0);
+	private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(16.0);
 
 	private bool _isDispatching;
 
@@ -166,7 +166,9 @@ public sealed class ControllerInputService : IDisposable
 
 	private DateTimeOffset _directInputRetryAfter = DateTimeOffset.MinValue;
 
-	private bool _isRunning;
+	private volatile bool _isRunning;
+
+    private readonly object _pollLock = new();
 
 	public bool IsRunning => _isRunning;
 
@@ -188,8 +190,7 @@ public sealed class ControllerInputService : IDisposable
 	{
 		_isRunning = false;
 		_timer.Dispose();
-		ResetDirectInputJoystick();
-		_directInput.Dispose();
+		lock (_pollLock) { ResetDirectInputJoystick(); _directInput.Dispose(); }
 	}
 
 	private void OnTick(object? state)
@@ -200,7 +201,7 @@ public sealed class ControllerInputService : IDisposable
 		}
 		try
 		{
-			PollController();
+			lock (_pollLock) { if (_isRunning) PollController(); }
 		}
 		catch (Exception exception)
 		{

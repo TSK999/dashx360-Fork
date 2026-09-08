@@ -45,7 +45,7 @@ public sealed class GameLaunchService : IGameLaunchService
 			Log($"url launch request | title={game.Title} | url={url}");
 			return new GameLaunchResult
 			{
-				TrackedProcess = process
+				TrackedProcess = null
 			};
 		}
 		if (string.Equals(game.LaunchType, "Steam", StringComparison.OrdinalIgnoreCase))
@@ -54,12 +54,14 @@ public sealed class GameLaunchService : IGameLaunchService
 			{
 				throw new InvalidOperationException("'" + game.Title + "' does not have a Steam launch command.");
 			}
-			string? installPath = NormalizeFolderPath(game.InstallPath);
+			if (!ulong.TryParse(game.SteamAppId, out var appId) || appId == 0)
+                throw new InvalidOperationException("A valid Steam app ID is required.");
+            string? installPath = NormalizeFolderPath(game.InstallPath);
 			HashSet<int> knownProcessIds = CaptureProcessIds();
 			Log($"steam launch request | title={game.Title} | steamAppId={game.SteamAppId} | installPath={game.InstallPath} | exePath={game.ExecutablePath}");
 			Process.Start(new ProcessStartInfo
 			{
-				FileName = game.LaunchCommand,
+				FileName = "steam://rungameid/" + appId,
 				UseShellExecute = true
 			});
 			Process process = await TryFindSteamGameProcessAsync(installPath, knownProcessIds, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
@@ -199,6 +201,7 @@ public sealed class GameLaunchService : IGameLaunchService
 
 	private static int ScoreCandidate(Process process, string? processPath, string? installPath, int foregroundProcessId)
 	{
+        if (!SafePaths.MatchesExecutable(processPath, null, installPath)) return 0;
 		int num = 0;
 		if (!string.IsNullOrWhiteSpace(processPath))
 		{
@@ -279,7 +282,7 @@ public sealed class GameLaunchService : IGameLaunchService
 	{
 		try
 		{
-			return IgnoredProcessNames.Contains(process.ProcessName);
+			return process.Id == Environment.ProcessId || string.Equals(process.ProcessName, "dashx360", StringComparison.OrdinalIgnoreCase) || IgnoredProcessNames.Contains(process.ProcessName);
 		}
 		catch
 		{

@@ -275,13 +275,24 @@ public partial class MainWindow : Window
 		}
 	}
 
+	private AppSettings? _subscribedSettings;
+
+    private void SubscribeSettings()
+    {
+        if (ReferenceEquals(_subscribedSettings, _viewModel.Settings)) return;
+        if (_subscribedSettings != null) _subscribedSettings.PropertyChanged -= Settings_OnPropertyChanged;
+        _subscribedSettings = _viewModel.Settings;
+        _subscribedSettings.PropertyChanged += Settings_OnPropertyChanged;
+        ApplyDisplaySettings();
+    }
+
 	private async void Window_OnLoaded(object sender, RoutedEventArgs e)
 	{
 		try
 		{
 			await _viewModel.LoadStartupSettingsAsync();
 			_viewModel.RefreshAudioOutputDevices();
-			_viewModel.Settings.PropertyChanged += Settings_OnPropertyChanged;
+			SubscribeSettings();
 			ApplyDisplaySettings();
 			_controllerInputService.Start();
 			_guideHotkeyService.Register(this);
@@ -312,13 +323,15 @@ public partial class MainWindow : Window
 		base.StateChanged -= Window_OnStateChanged;
 		base.Cursor = null;
 		Mouse.OverrideCursor = null;
-		_viewModel.Settings.PropertyChanged -= Settings_OnPropertyChanged;
+		if (_subscribedSettings != null) _subscribedSettings.PropertyChanged -= Settings_OnPropertyChanged;
 		_viewModel.FriendsOverlayRequested -= ViewModel_OnFriendsOverlayRequested;
 		_viewModel.ToastRequested -= ViewModel_OnToastRequested;
 		_guideWindow?.Close();
 		_guideViewModel?.Dispose();
 		_guideHotkeyService.Dispose();
 		_controllerInputService.Dispose();
+        _viewModel.Dispose();
+        _viewModel.PropertyChanged -= ViewModel_OnPropertyChanged;
 		_clockTimer.Stop();
 		_performanceDebugTimer.Stop();
 		CleanupYouTubeTvBrowser();
@@ -348,8 +361,8 @@ public partial class MainWindow : Window
 			UltraWideBingBackgroundImage.Source = null;
 			PreviousPreviewImage.Source = null;
 			NextPreviewImage.Source = null;
-			GameDetailsBackgroundImage.Source = null;
-			GameDetailsGalleryImage.Source = null;
+			ImageResources.Suspend(GameDetailsBackgroundImage);
+			ImageResources.Suspend(GameDetailsGalleryImage);
 			PreviousPreviewLiveHost.Content = null;
 			NextPreviewLiveHost.Content = null;
 			TransitionLeftHost.Content = null;
@@ -357,10 +370,7 @@ public partial class MainWindow : Window
 			TransitionRightHost.Content = null;
 			ImageCacheService.ClearDecodedImages();
 			_audioService.TrimCachedResources(keepGuideReady: true);
-			GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
-			GC.WaitForPendingFinalizers();
-			GC.Collect(2, GCCollectionMode.Forced, blocking: false, compacting: true);
-			EmptyWorkingSet(Process.GetCurrentProcess().Handle);
+
 		}
 		catch (Exception exception)
 		{
@@ -372,8 +382,11 @@ public partial class MainWindow : Window
 	{
 		try
 		{
-			GameDetailsBackgroundImage.ClearValue(System.Windows.Controls.Image.SourceProperty);
-			GameDetailsGalleryImage.ClearValue(System.Windows.Controls.Image.SourceProperty);
+			ImageResources.Resume(GameDetailsBackgroundImage);
+			ImageResources.Resume(GameDetailsGalleryImage);
+            _appliedThemeBackgroundPath = null;
+            _appliedBingBackgroundPath = null;
+            UpdateAdjacentPreviewSnapshots();
 			UpdateThemeBackgroundVisual(animate: false);
 			UpdateBingBackgroundVisual(animate: false);
 			ScheduleGuideAudioWarmup();
@@ -2146,6 +2159,7 @@ public partial class MainWindow : Window
 
 	private void ViewModel_OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
 	{
+        if (e.PropertyName == nameof(DashboardViewModel.Settings)) SubscribeSettings();
 		if (e.PropertyName == "CurrentTab")
 		{
 			AnimateTabChange();
@@ -3906,7 +3920,8 @@ public partial class MainWindow : Window
 				return;
 			}
 			System.Windows.Controls.Button element = GetAppLibraryTileButtonForItem(tile);
-			if (TryFocus(element))
+			if (element is FrameworkElement tileElement) tileElement.BringIntoView();
+            if (TryFocus(element))
 			{
 				return;
 			}

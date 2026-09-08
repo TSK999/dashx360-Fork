@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using XboxMetroLauncher.Models;
@@ -32,13 +33,15 @@ public sealed class ImportExportService : IImportExportService
 
 	private readonly string _themesRoot;
 
+    private string? _destinationRoot;
+
 	public ImportExportService(IGameLibraryService libraryService, IProfileService profileService, ISettingsService settingsService, string dataRoot)
 	{
 		_libraryService = libraryService;
 		_profileService = profileService;
 		_settingsService = settingsService;
 		_dataRoot = dataRoot;
-		_themesRoot = AppPaths.FindFolder(Path.Combine("Assets", "Custom Files", "Themes"));
+		_themesRoot = Path.Combine(_dataRoot, "Assets", "Custom Files", "Themes");
 		Directory.CreateDirectory(_themesRoot);
 	}
 
@@ -52,90 +55,77 @@ public sealed class ImportExportService : IImportExportService
 		dashboardBackup.Library = CloneLibrary(library);
 		DashboardBackup dashboardBackup4 = dashboardBackup;
 		dashboardBackup4.CustomThemes = await BuildThemesBackupAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		await WriteBackupAsync(dashboardBackup, filePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		dashboardBackup.Friends = await new JsonStore(_dataRoot).ReadAsync<FriendsData>("friends.json", cancellationToken) ?? new FriendsData();
+        dashboardBackup.GameArtwork = await BuildArtworkAsync(library, cancellationToken);
+        await WriteBackupAsync(dashboardBackup, filePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 	}
 
-	public async Task<DashboardImportResult> ImportAsync(string filePath, CancellationToken cancellationToken = default(CancellationToken))
-	{
-		_ = 10;
-		ImportedDashboardData importedData;
-		try
-		{
-			importedData = await ReadAndValidateBackupAsync(filePath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		}
-		catch (JsonException)
-		{
-			return new DashboardImportResult
-			{
-				Success = false,
-				Message = "The selected backup file is not valid JSON."
-			};
-		}
-		catch (InvalidDataException ex)
-		{
-			return new DashboardImportResult
-			{
-				Success = false,
-				Message = ex.Message
-			};
-		}
-		try
-		{
-			DashboardBackup backup = importedData.Backup;
-			GameLibrary currentLibrary = await _libraryService.LoadAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			Profile currentProfile = await _profileService.LoadAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			AppSettings currentSettings = await _settingsService.LoadAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			string safetyBackupPath = await CreateSafetyBackupAsync(currentLibrary, currentProfile, currentSettings, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			AppSettings updatedSettings = importedData.IncludesSettings ? await MergeSettingsAsync(currentSettings, backup.Settings, cancellationToken).ConfigureAwait(continueOnCapturedContext: false) : currentSettings;
-			Profile updatedProfile = importedData.IncludesProfile ? await MergeProfileAsync(currentProfile, backup.Profile, cancellationToken).ConfigureAwait(continueOnCapturedContext: false) : currentProfile;
-			GameLibrary updatedLibrary = importedData.IncludesLibrary ? NormalizeLibrary(backup.Library) : currentLibrary;
-			if (importedData.IncludesThemes)
-			{
-				await RestoreThemesAsync(backup.CustomThemes, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			}
-			await _settingsService.SaveAsync(updatedSettings, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			await _profileService.SaveAsync(updatedProfile, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			await _libraryService.SaveAsync(updatedLibrary, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-			return new DashboardImportResult
-			{
-				Success = true,
-				Message = "Dashboard data imported successfully.",
-				SafetyBackupPath = safetyBackupPath
-			};
-		}
-		catch (JsonException ex2)
-		{
-			App.LogException(ex2, "ImportExportService.ImportAsync");
-			return new DashboardImportResult
-			{
-				Success = false,
-				Message = "Import failed while reading existing dashboard data: " + ex2.Message
-			};
-		}
-		catch (InvalidDataException ex3)
-		{
-			return new DashboardImportResult
-			{
-				Success = false,
-				Message = ex3.Message
-			};
-		}
-		catch (Exception ex4)
-		{
-			App.LogException(ex4, "ImportExportService.ImportAsync");
-			return new DashboardImportResult
-			{
-				Success = false,
-				Message = "Import failed: " + ex4.Message
-			};
-		}
-	}
+    public async Task<DashboardImportResult> ImportAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        string? safetyPath = null;
+        try
+        {
+            var data = await ReadAndValidateBackupAsync(filePath, cancellationToken).ConfigureAwait(false);
+            return await StorageLock.RunAsync(_dataRoot, async () =>
+            {
+                var library = await _libraryService.LoadAsync(cancellationToken).ConfigureAwait(false);
+                var profile = Clone(await _profileService.LoadAsync(cancellationToken).ConfigureAwait(false));
+                var settings = Clone(await _settingsService.LoadAsync(cancellationToken).ConfigureAwait(false));
+                using var transaction = new DataTransaction(_dataRoot);
+                var staged = new ImportExportService(_libraryService, _profileService, _settingsService, transaction.StagingRoot) { _destinationRoot = _dataRoot };
+                var stagedStore = new JsonStore(transaction.StagingRoot);
+                if (data.IncludesSettings)
+                {
+                    var merged = MergeFields(await BuildSettingsBackupAsync(settings, cancellationToken), data.Backup.Settings, data.SettingsJson);
+                    await stagedStore.WriteAsync("settings.json", await staged.MergeSettingsAsync(Clone(settings), merged, cancellationToken), cancellationToken);
+                }
+                if (data.IncludesProfile)
+                {
+                    var merged = MergeFields(await BuildProfileBackupAsync(profile, cancellationToken), data.Backup.Profile, data.ProfileJson);
+                    await stagedStore.WriteAsync("profile.json", await staged.MergeProfileAsync(Clone(profile), merged, cancellationToken), cancellationToken);
+                }
+                if (data.IncludesLibrary)
+                {
+                    var importedLibrary = NormalizeLibrary(data.Backup.Library);
+                    await staged.RestoreArtworkAsync(importedLibrary, data.Backup.GameArtwork, cancellationToken);
+                    await stagedStore.WriteAsync("library.json", importedLibrary, cancellationToken);
+                }
+                if (data.IncludesThemes) await staged.RestoreThemesAsync(data.Backup.CustomThemes, cancellationToken);
+                if (data.IncludesFriends) await stagedStore.WriteAsync("friends.json", data.Backup.Friends, cancellationToken);
+                // All decoding and validation finishes before the first live file is replaced.
+                safetyPath = await CreateSafetyBackupAsync(library, profile, settings, cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return new DashboardImportResult { Success = true, Message = "Dashboard data imported successfully.", SafetyBackupPath = safetyPath };
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            App.LogException(ex, "ImportExportService.ImportAsync");
+            return new DashboardImportResult { Success = false, Message = "Import failed: " + ex.Message, SafetyBackupPath = safetyPath ?? string.Empty };
+        }
+    }
+
+    private string PublishedPath(string stagedPath) => _destinationRoot == null ? stagedPath : SafePaths.Within(_destinationRoot, Path.GetRelativePath(_dataRoot, stagedPath));
+    private static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, SerializerOptions), SerializerOptions)!;
+    private static T MergeFields<T>(T current, T imported, JsonElement? source)
+    {
+        if (source == null) return imported;
+        var merged = JsonSerializer.SerializeToNode(current, SerializerOptions)!.AsObject();
+        var values = JsonSerializer.SerializeToNode(imported, SerializerOptions)!.AsObject();
+        foreach (var field in source.Value.EnumerateObject())
+        {
+            var key = merged.Select(p => p.Key).FirstOrDefault(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
+            if (key != null) merged[key] = values[key]?.DeepClone();
+        }
+        return merged.Deserialize<T>(SerializerOptions)!;
+    }
 
 	private async Task<string> CreateSafetyBackupAsync(GameLibrary library, Profile profile, AppSettings settings, CancellationToken cancellationToken)
 	{
 		string text = Path.Combine(_dataRoot, "Backups");
 		Directory.CreateDirectory(text);
-		string path = $"{"DashX360_Backup"}_PreImport_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+		string path = $"{"DashX360_Backup"}_PreImport_{DateTime.Now:yyyyMMdd_HHmmss_fffffff}_{Guid.NewGuid():N}.json";
 		string backupPath = Path.Combine(text, path);
 		await ExportAsync(library, profile, settings, backupPath, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 		return backupPath;
@@ -146,6 +136,7 @@ public sealed class ImportExportService : IImportExportService
 		DashboardBackupSettings backup = new DashboardBackupSettings
 		{
 			StartFullscreen = settings.StartFullscreen,
+            DashboardVolume = settings.DashboardVolume,
 			PlayUiSounds = settings.PlayUiSounds,
 			EnableControllerInput = settings.EnableControllerInput,
 			LaunchOnWindowsStartup = settings.LaunchOnWindowsStartup,
@@ -192,6 +183,7 @@ public sealed class ImportExportService : IImportExportService
 	private async Task<AppSettings> MergeSettingsAsync(AppSettings current, DashboardBackupSettings imported, CancellationToken cancellationToken)
 	{
 		current.StartFullscreen = imported.StartFullscreen;
+        if (imported.DashboardVolume.HasValue) current.DashboardVolume = imported.DashboardVolume.Value;
 		current.PlayUiSounds = imported.PlayUiSounds;
 		current.EnableControllerInput = imported.EnableControllerInput;
 		current.LaunchOnWindowsStartup = imported.LaunchOnWindowsStartup;
@@ -247,9 +239,9 @@ public sealed class ImportExportService : IImportExportService
 				{
 					destination = Path.Combine(tileImageFolder, $"{Path.GetFileNameWithoutExtension(text)}-{DateTime.Now:yyyyMMddHHmmss}{Path.GetExtension(text)}");
 				}
-				byte[] bytes = Convert.FromBase64String(importedImage.ImageBase64);
+				byte[] bytes = BackupImages.Decode(importedImage.ImageBase64, Path.GetFileName(destination));
 				await File.WriteAllBytesAsync(destination, bytes, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-				customization.ImagePath = destination;
+				customization.ImagePath = PublishedPath(destination);
 				customization = null;
 			}
 		}
@@ -281,7 +273,7 @@ public sealed class ImportExportService : IImportExportService
 	{
 		current.Gamertag = (string.IsNullOrWhiteSpace(imported.Gamertag) ? current.Gamertag : imported.Gamertag);
 		current.Name = string.IsNullOrWhiteSpace(imported.Name) ? current.Name : imported.Name;
-		current.Gamerscore = ((imported.Gamerscore > 0) ? imported.Gamerscore : current.Gamerscore);
+		current.Gamerscore = Math.Max(0, imported.Gamerscore);
 		current.OnlineStatus = (string.IsNullOrWhiteSpace(imported.OnlineStatus) ? current.OnlineStatus : imported.OnlineStatus);
 		current.Motto = imported.Motto ?? string.Empty;
 		current.Location = string.IsNullOrWhiteSpace(imported.Location) ? current.Location : imported.Location;
@@ -307,9 +299,9 @@ public sealed class ImportExportService : IImportExportService
 		{
 			destination = Path.Combine(text, $"{Path.GetFileNameWithoutExtension(text2)}-{DateTime.Now:yyyyMMddHHmmss}{Path.GetExtension(text2)}");
 		}
-		byte[] bytes = Convert.FromBase64String(imported.GamerPictureBase64);
+		byte[] bytes = BackupImages.Decode(imported.GamerPictureBase64, Path.GetFileName(destination));
 		await File.WriteAllBytesAsync(destination, bytes, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
-		return destination;
+		return PublishedPath(destination);
 	}
 
 	private async Task<List<DashboardBackupTheme>> BuildThemesBackupAsync(CancellationToken cancellationToken)
@@ -366,7 +358,7 @@ public sealed class ImportExportService : IImportExportService
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			string text = (string.IsNullOrWhiteSpace(theme.FolderName) ? MakeSafeFolderName(theme.Name) : MakeSafeFolderName(theme.FolderName));
-			string folderPath = Path.Combine(_themesRoot, text);
+			string folderPath = SafePaths.Within(_themesRoot, text);
 			Directory.CreateDirectory(folderPath);
 			DashboardThemeManifest manifest = new DashboardThemeManifest
 			{
@@ -391,7 +383,7 @@ public sealed class ImportExportService : IImportExportService
 		{
 			return string.Empty;
 		}
-		string path = Path.Combine(folderPath, fileName);
+		string path = SafePaths.Within(folderPath, fileName);
 		if (!File.Exists(path))
 		{
 			return string.Empty;
@@ -401,53 +393,17 @@ public sealed class ImportExportService : IImportExportService
 
 	private static async Task WriteThemeImageAsync(string folderPath, string fileName, string base64, CancellationToken cancellationToken)
 	{
-		string path = Path.Combine(folderPath, fileName);
+		string path = SafePaths.Within(folderPath, fileName);
 		if (string.IsNullOrWhiteSpace(base64))
 		{
 			DeleteIfExists(path);
 			return;
 		}
-		byte[] bytes = Convert.FromBase64String(base64);
+		byte[] bytes = BackupImages.Decode(base64, fileName);
 		await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 	}
 
-	private static GameLibrary CloneLibrary(GameLibrary library)
-	{
-		return NormalizeLibrary(new GameLibrary
-		{
-			LibraryPaths = library.LibraryPaths.ToList(),
-			Games = library.Games.Select((GameMetadata game) => new GameMetadata
-			{
-				Id = game.Id,
-				Title = game.Title,
-				LaunchType = game.LaunchType,
-				ExecutablePath = game.ExecutablePath,
-				SteamAppId = game.SteamAppId,
-				InstallPath = game.InstallPath,
-				LaunchCommand = game.LaunchCommand,
-				Arguments = game.Arguments,
-				WorkingDirectory = game.WorkingDirectory,
-				CoverArtPath = game.CoverArtPath,
-				HeaderImagePath = game.HeaderImagePath,
-				StoreScreenshotPath = game.StoreScreenshotPath,
-				BackgroundArtPath = game.BackgroundArtPath,
-				LogoImagePath = game.LogoImagePath,
-				CoverZoom = game.CoverZoom,
-				CoverOffsetX = game.CoverOffsetX,
-				CoverOffsetY = game.CoverOffsetY,
-				Genre = game.Genre,
-				Rating = game.Rating,
-				MultiplayerInfo = game.MultiplayerInfo,
-				CoOpInfo = game.CoOpInfo,
-				ReviewStarRating = game.ReviewStarRating,
-				ReviewCount = game.ReviewCount,
-				Platform = game.Platform,
-				IsFavorite = game.IsFavorite,
-				LastPlayed = game.LastPlayed,
-				Playtime = game.Playtime
-			}).ToList()
-		});
-	}
+	private static GameLibrary CloneLibrary(GameLibrary library) => NormalizeLibrary(Clone(library));
 
 	private static GameLibrary NormalizeLibrary(GameLibrary? library)
 	{
@@ -467,6 +423,8 @@ public sealed class ImportExportService : IImportExportService
 		}
 		foreach (GameMetadata game in library.Games)
 		{
+            if (game == null) throw new InvalidDataException("The game library contains a null entry.");
+            if (!string.IsNullOrWhiteSpace(game.LaunchType) && !new[] { "Exe", "Steam", "Url" }.Contains(game.LaunchType, StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException("The game library contains an unsupported launch type.");
 			game.Id = (string.IsNullOrWhiteSpace(game.Id) ? Guid.NewGuid().ToString("N") : game.Id);
 			GameMetadata gameMetadata = game;
 			if (gameMetadata.Title == null)
@@ -565,8 +523,7 @@ public sealed class ImportExportService : IImportExportService
 		{
 			Directory.CreateDirectory(directoryName);
 		}
-		await using FileStream stream = File.Create(filePath);
-		await JsonSerializer.SerializeAsync(stream, backup, SerializerOptions, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+		await AtomicFile.WriteJsonAsync(filePath, backup, SerializerOptions, cancellationToken).ConfigureAwait(false);
 	}
 
 	private static async Task<ImportedDashboardData> ReadAndValidateBackupAsync(string filePath, CancellationToken cancellationToken)
@@ -575,7 +532,8 @@ public sealed class ImportExportService : IImportExportService
 		{
 			throw new InvalidDataException("The selected backup file could not be found.");
 		}
-		await using FileStream stream = File.OpenRead(filePath);
+		if (new FileInfo(filePath).Length > 256L * 1024 * 1024) throw new InvalidDataException("The backup exceeds the 256 MB limit.");
+        await using FileStream stream = File.OpenRead(filePath);
 		using JsonDocument document = await JsonDocument.ParseAsync(stream, new JsonDocumentOptions
 		{
 			AllowTrailingCommas = true,
@@ -585,7 +543,8 @@ public sealed class ImportExportService : IImportExportService
 		if (root.ValueKind == JsonValueKind.Object && IsFullBackupJson(root))
 		{
 			DashboardBackup dashboardBackup = root.Deserialize<DashboardBackup>(SerializerOptions) ?? throw new InvalidDataException("The selected backup file is empty or unreadable.");
-			return NormalizeImportedBackup(dashboardBackup, includesSettings: true, includesProfile: true, includesLibrary: true, includesThemes: true);
+			var sections = BackupSchema.Sections(root);
+            return NormalizeImportedBackup(dashboardBackup, sections.Contains("Settings"), sections.Contains("Profile"), sections.Contains("Library"), sections.Contains("CustomThemes")) with { IncludesFriends = sections.Contains("Friends"), SettingsJson = BackupSchema.Get(root, "Settings"), ProfileJson = BackupSchema.Get(root, "Profile") };
 		}
 		if (root.ValueKind == JsonValueKind.Object && IsSettingsJson(root))
 		{
@@ -593,7 +552,7 @@ public sealed class ImportExportService : IImportExportService
 			return NormalizeImportedBackup(new DashboardBackup
 			{
 				Settings = await BuildSettingsBackupAsync(settings, cancellationToken).ConfigureAwait(continueOnCapturedContext: false)
-			}, includesSettings: true, includesProfile: false, includesLibrary: false, includesThemes: false);
+			}, includesSettings: true, includesProfile: false, includesLibrary: false, includesThemes: false) with { SettingsJson = root.Clone() };
 		}
 		if (root.ValueKind == JsonValueKind.Object && IsProfileJson(root))
 		{
@@ -601,7 +560,7 @@ public sealed class ImportExportService : IImportExportService
 			return NormalizeImportedBackup(new DashboardBackup
 			{
 				Profile = await BuildProfileBackupAsync(profile, cancellationToken).ConfigureAwait(continueOnCapturedContext: false)
-			}, includesSettings: false, includesProfile: true, includesLibrary: false, includesThemes: false);
+			}, includesSettings: false, includesProfile: true, includesLibrary: false, includesThemes: false) with { ProfileJson = root.Clone() };
 		}
 		if (root.ValueKind == JsonValueKind.Object && IsLibraryJson(root))
 		{
@@ -640,54 +599,64 @@ public sealed class ImportExportService : IImportExportService
 		{
 			dashboardBackup.CustomThemes = new List<DashboardBackupTheme>();
 		}
-		return new ImportedDashboardData(dashboardBackup, includesSettings, includesProfile, includesLibrary, includesThemes);
+		if (dashboardBackup.CustomThemes.Any(t => t == null) || dashboardBackup.Settings.DashboardTileImages == null || dashboardBackup.Settings.DashboardTileImages.Any(i => i == null) || dashboardBackup.Settings.DashboardTileCustomizations == null || dashboardBackup.Settings.DashboardTileCustomizations.Any(p => p.Value == null) || dashboardBackup.GameArtwork == null || dashboardBackup.GameArtwork.Any(a => a == null) || dashboardBackup.Friends == null || dashboardBackup.Friends.Friends == null || dashboardBackup.Friends.Friends.Any(f => f == null))
+            throw new InvalidDataException("The backup contains an invalid or null entry.");
+        return new ImportedDashboardData(dashboardBackup, includesSettings, includesProfile, includesLibrary, includesThemes);
 	}
 
 	private static bool IsFullBackupJson(JsonElement root)
 	{
-		return root.TryGetProperty("ExportVersion", out _) || root.TryGetProperty("Settings", out _) || root.TryGetProperty("Profile", out _) || root.TryGetProperty("Library", out _) || root.TryGetProperty("CustomThemes", out _);
+		return BackupSchema.Has(root, "ExportVersion") || BackupSchema.Has(root, "Settings") || BackupSchema.Has(root, "Profile") || BackupSchema.Has(root, "Library") || BackupSchema.Has(root, "CustomThemes") || BackupSchema.Has(root, "Friends") || BackupSchema.Has(root, "GameArtwork");
 	}
 
 	private static bool IsSettingsJson(JsonElement root)
 	{
-		return root.TryGetProperty("DashboardTileCustomizations", out _) || root.TryGetProperty("DashboardTileColor", out _) || root.TryGetProperty("ThemeName", out _) || root.TryGetProperty("StartFullscreen", out _);
+		return BackupSchema.Has(root, "DashboardTileCustomizations") || BackupSchema.Has(root, "DashboardTileColor") || BackupSchema.Has(root, "ThemeName") || BackupSchema.Has(root, "StartFullscreen");
 	}
 
 	private static bool IsProfileJson(JsonElement root)
 	{
-		return root.TryGetProperty("Gamertag", out _) || root.TryGetProperty("GamerPicturePath", out _) || root.TryGetProperty("Gamerscore", out _);
+		return BackupSchema.Has(root, "Gamertag") || BackupSchema.Has(root, "GamerPicturePath") || BackupSchema.Has(root, "Gamerscore");
 	}
 
 	private static bool IsLibraryJson(JsonElement root)
 	{
-		return root.TryGetProperty("Games", out _) || root.TryGetProperty("LibraryPaths", out _);
+		return BackupSchema.Has(root, "Games") || BackupSchema.Has(root, "LibraryPaths");
 	}
 
-	private sealed record ImportedDashboardData(DashboardBackup Backup, bool IncludesSettings, bool IncludesProfile, bool IncludesLibrary, bool IncludesThemes);
+	private sealed record ImportedDashboardData(DashboardBackup Backup, bool IncludesSettings, bool IncludesProfile, bool IncludesLibrary, bool IncludesThemes, bool IncludesFriends = false, JsonElement? SettingsJson = null, JsonElement? ProfileJson = null);
 
-	private static string MakeSafeFileName(string value)
-	{
-		char[] invalid = Path.GetInvalidFileNameChars();
-		string text = new string(value.Select((char ch) => (!invalid.Contains(ch)) ? ch : '_').ToArray()).Trim();
-		if (!string.IsNullOrWhiteSpace(text))
-		{
-			return text;
-		}
-		return "profile-import.png";
-	}
+    private static string MakeSafeFileName(string value) => SafePaths.FileName(value);
+    private static string MakeSafeFolderName(string value) => SafePaths.FileName(value);
 
-	private static string MakeSafeFolderName(string value)
-	{
-		char[] invalid = Path.GetInvalidFileNameChars();
-		string text = new string((from ch in value
-			where !invalid.Contains(ch)
-			select (!char.IsWhiteSpace(ch)) ? ch : '_').ToArray()).Trim('_');
-		if (!string.IsNullOrWhiteSpace(text))
-		{
-			return text;
-		}
-		return "Custom_Theme";
-	}
+    private static readonly string[] ArtworkFields = { "CoverArtPath", "HeaderImagePath", "StoreScreenshotPath", "BackgroundArtPath", "LogoImagePath" };
+    private static async Task<List<DashboardBackupArtwork>> BuildArtworkAsync(GameLibrary library, CancellationToken token)
+    {
+        var result = new List<DashboardBackupArtwork>();
+        foreach (var game in library.Games)
+            foreach (var field in ArtworkFields)
+            {
+                var path = (string?)typeof(GameMetadata).GetProperty(field)!.GetValue(game);
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                path = AppPaths.ResolvePath(path);
+                if (!File.Exists(path)) continue;
+                var bytes = await File.ReadAllBytesAsync(path, token).ConfigureAwait(false);
+                result.Add(new() { GameId = game.Id, Field = field, FileName = Path.GetFileName(path), ImageBase64 = Convert.ToBase64String(bytes) });
+            }
+        return result;
+    }
+    private async Task RestoreArtworkAsync(GameLibrary library, List<DashboardBackupArtwork> artwork, CancellationToken token)
+    {
+        foreach (var asset in artwork)
+        {
+            if (!ArtworkFields.Contains(asset.Field)) throw new InvalidDataException("The backup contains an unknown artwork field.");
+            var game = library.Games.FirstOrDefault(g => g.Id == asset.GameId) ?? throw new InvalidDataException("Artwork refers to a missing game.");
+            var bytes = BackupImages.Decode(asset.ImageBase64, asset.FileName);
+            var destination = SafePaths.Within(_dataRoot, Path.Combine("ImportedAssets", "GameArt", Guid.NewGuid().ToString("N") + Path.GetExtension(asset.FileName)));
+            await AtomicFile.WriteAsync(destination, bytes, token).ConfigureAwait(false);
+            typeof(GameMetadata).GetProperty(asset.Field)!.SetValue(game, PublishedPath(destination));
+        }
+    }
 
 	private static void DeleteIfExists(string path)
 	{

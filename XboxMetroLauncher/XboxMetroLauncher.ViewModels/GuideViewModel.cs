@@ -1869,8 +1869,8 @@ public sealed class GuideViewModel : ObservableObject, IDisposable
 		_dashboard.PropertyChanged -= Dashboard_OnPropertyChanged;
 		_clockTimer.Stop();
 		_partyRefreshTimer.Stop();
-		_partyRefreshLock.Dispose();
-		_friendsSaveLock.Dispose();
+        // Async refresh/save continuations can still release these gates after the window closes.
+        // They own no native handle; let them be collected with the view model.
 	}
 
 	private async Task RefreshAsync(bool showPopup)

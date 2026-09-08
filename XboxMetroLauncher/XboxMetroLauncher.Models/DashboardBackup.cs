@@ -6,7 +6,7 @@ namespace XboxMetroLauncher.Models;
 
 public sealed class DashboardBackup
 {
-	public string ExportVersion { get; set; } = "1";
+	public string ExportVersion { get; set; } = "2";
 
 	public string AppVersion { get; set; } = ResolveAppVersion();
 
@@ -19,6 +19,10 @@ public sealed class DashboardBackup
 	public GameLibrary Library { get; set; } = new GameLibrary();
 
 	public List<DashboardBackupTheme> CustomThemes { get; set; } = new List<DashboardBackupTheme>();
+
+	public FriendsData Friends { get; set; } = new();
+
+    public List<DashboardBackupArtwork> GameArtwork { get; set; } = new();
 
 	private static string ResolveAppVersion()
 	{
