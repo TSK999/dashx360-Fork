@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -13,6 +14,7 @@ public partial class MainWindow
 {
     private DispatcherTimer? _firstRunVisualRefreshTimer;
     private int _firstRunVisualsAppliedStep = -1;
+    private DependencyObject? _firstRunVisualsAppliedContent;
     private bool _firstRunVisualRefreshInstalled;
 
     internal void InstallFirstRunVisualRefresh()
@@ -57,8 +59,8 @@ public partial class MainWindow
             return;
         }
 
-        // Make the setup page a real shell surface. The normal tab/profile chrome
-        // remains around it, but Home itself cannot bleed through the page.
+        // Make the setup page a real shell surface. Home itself cannot bleed
+        // through while first-run setup owns the dashboard body.
         if (_firstRunLayer.Children.Count > 0 && _firstRunLayer.Children[0] is Rectangle backdrop)
         {
             backdrop.Fill = new LinearGradientBrush(
@@ -192,12 +194,27 @@ public partial class MainWindow
 
     private void PolishCurrentFirstRunStep()
     {
-        if (_firstRunContentHost == null || _firstRunVisualsAppliedStep == _firstRunStep)
+        if (_firstRunContentHost == null || _firstRunContentHost.Children.Count == 0)
         {
             return;
         }
 
-        _firstRunVisualsAppliedStep = _firstRunStep;
+        DependencyObject currentContent = _firstRunContentHost.Children[0];
+        if (_firstRunVisualsAppliedStep == _firstRunStep
+            && ReferenceEquals(_firstRunVisualsAppliedContent, currentContent))
+        {
+            return;
+        }
+
+        List<TextBlock> textBlocks = FirstRunDescendants<TextBlock>(currentContent).ToList();
+        List<Button> buttons = FirstRunDescendants<Button>(currentContent).ToList();
+
+        // RenderFirstRunStep adds the host panel before its controls. Do not mark a
+        // step as polished until that page's visual tree actually exists.
+        if (textBlocks.Count == 0 && buttons.Count == 0)
+        {
+            return;
+        }
 
         if (_firstRunSectionDescription != null)
         {
@@ -213,19 +230,23 @@ public partial class MainWindow
             };
         }
 
-        foreach (Button button in FirstRunDescendants<Button>(_firstRunContentHost))
+        bool compactChoicePage = _firstRunStep is 1 or 2;
+        foreach (Button button in buttons)
         {
-            button.Height = 50;
-            button.Margin = new Thickness(0, 0, 0, 8);
+            button.Height = compactChoicePage ? 38 : 50;
+            button.Margin = new Thickness(0, 0, 0, compactChoicePage ? 4 : 8);
+            if (compactChoicePage)
+            {
+                button.FontSize = 18;
+            }
         }
 
         if (_firstRunStep == 0)
         {
-            foreach (TextBlock text in FirstRunDescendants<TextBlock>(_firstRunContentHost))
+            foreach (TextBlock text in textBlocks)
             {
                 if (string.Equals(text.Text, "Welcome to DashX360", StringComparison.Ordinal))
                 {
-                    text.Text = "Welcome to DashX360";
                     text.FontSize = 40;
                 }
                 else if (text.Text.StartsWith("Your first-start setup is part", StringComparison.Ordinal))
@@ -238,7 +259,7 @@ public partial class MainWindow
                 }
             }
 
-            foreach (Button button in FirstRunDescendants<Button>(_firstRunContentHost))
+            foreach (Button button in buttons)
             {
                 if (string.Equals(button.Content as string, "begin setup", StringComparison.Ordinal))
                 {
@@ -248,9 +269,20 @@ public partial class MainWindow
             }
         }
 
+        if (_firstRunStep is 1 or 2)
+        {
+            string expectedHeading = _firstRunStep == 1 ? "choose your language" : "where are you?";
+            TextBlock? heading = textBlocks.FirstOrDefault(text => string.Equals(text.Text, expectedHeading, StringComparison.Ordinal));
+            if (heading != null)
+            {
+                heading.FontSize = 24;
+                heading.Margin = new Thickness(0, 0, 0, 8);
+            }
+        }
+
         if (_firstRunStep == 6)
         {
-            foreach (Button button in FirstRunDescendants<Button>(_firstRunContentHost))
+            foreach (Button button in buttons)
             {
                 if (string.Equals(button.Content as string, "enter dashboard", StringComparison.Ordinal))
                 {
@@ -258,6 +290,9 @@ public partial class MainWindow
                 }
             }
         }
+
+        _firstRunVisualsAppliedStep = _firstRunStep;
+        _firstRunVisualsAppliedContent = currentContent;
     }
 
     private static IEnumerable<T> FirstRunDescendants<T>(DependencyObject root) where T : DependencyObject
