@@ -1,16 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using XboxMetroLauncher.Input;
+using XboxMetroLauncher.Utilities;
 
 namespace XboxMetroLauncher;
 
@@ -79,50 +82,64 @@ public partial class MainWindow
                 EndPoint = new Point(0, 1),
                 GradientStops = new GradientStopCollection
                 {
-                    new GradientStop(Color.FromRgb(70, 72, 73), 0.00),
-                    new GradientStop(Color.FromRgb(101, 103, 104), 0.18),
-                    new GradientStop(Color.FromRgb(205, 206, 206), 0.54),
-                    new GradientStop(Color.FromRgb(232, 232, 231), 1.00)
+                    new GradientStop(Color.FromRgb(69, 71, 72), 0.00),
+                    new GradientStop(Color.FromRgb(91, 93, 94), 0.16),
+                    new GradientStop(Color.FromRgb(136, 138, 139), 0.35),
+                    new GradientStop(Color.FromRgb(196, 197, 197), 0.56),
+                    new GradientStop(Color.FromRgb(226, 227, 226), 0.78),
+                    new GradientStop(Color.FromRgb(239, 239, 238), 1.00)
                 }
             }
         };
         _profileSigninLayer = root;
         Panel.SetZIndex(root, 5000);
 
-        root.Children.Add(new Rectangle
+        // The original sign-in view has a very soft horizontal light sweep through
+        // the profile row, not a card or dashboard panel.
+        var sweep = new Rectangle
         {
-            Height = 188,
+            Height = 250,
             VerticalAlignment = VerticalAlignment.Center,
-            Fill = new LinearGradientBrush(
-                Color.FromArgb(22, 255, 255, 255),
-                Color.FromArgb(2, 255, 255, 255),
-                new Point(0, 0),
-                new Point(0, 1)),
-            IsHitTestVisible = false
-        });
+            Margin = new Thickness(0, 72, 0, 0),
+            IsHitTestVisible = false,
+            Opacity = 0.38,
+            Fill = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1),
+                GradientStops = new GradientStopCollection
+                {
+                    new GradientStop(Color.FromArgb(0, 255, 255, 255), 0.00),
+                    new GradientStop(Color.FromArgb(46, 255, 255, 255), 0.24),
+                    new GradientStop(Color.FromArgb(28, 255, 255, 255), 0.68),
+                    new GradientStop(Color.FromArgb(0, 255, 255, 255), 1.00)
+                }
+            }
+        };
+        root.Children.Add(sweep);
 
         var title = new StackPanel
         {
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 46, 92, 0)
+            Margin = new Thickness(0, 43, 90, 0)
         };
         title.Children.Add(new TextBlock
         {
             Text = "sign in or out",
             Foreground = Brushes.White,
             FontFamily = new FontFamily("Segoe UI Light"),
-            FontSize = 31,
+            FontSize = 30,
             TextAlignment = TextAlignment.Right,
             HorizontalAlignment = HorizontalAlignment.Right
         });
         title.Children.Add(new TextBlock
         {
             Text = "Choose your profile",
-            Foreground = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
+            Foreground = new SolidColorBrush(Color.FromArgb(242, 255, 255, 255)),
             FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 14,
-            Margin = new Thickness(0, -2, 0, 0),
+            FontSize = 13,
+            Margin = new Thickness(0, -1, 0, 0),
             TextAlignment = TextAlignment.Right,
             HorizontalAlignment = HorizontalAlignment.Right
         });
@@ -131,28 +148,28 @@ public partial class MainWindow
         var profileCanvas = new Canvas
         {
             Width = 1140,
-            Height = 430,
+            Height = 390,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 30, 0, 0)
+            Margin = new Thickness(0, 54, 0, 0)
         };
         root.Children.Add(profileCanvas);
 
         var current = CreateCurrentProfileCard();
-        Canvas.SetLeft(current, 290);
-        Canvas.SetTop(current, 68);
+        Canvas.SetLeft(current, 295);
+        Canvas.SetTop(current, 54);
         profileCanvas.Children.Add(current);
         _profileSigninPrimaryButton = current;
 
         var create = CreateCreateProfileCard();
-        Canvas.SetLeft(create, 620);
-        Canvas.SetTop(create, 92);
+        Canvas.SetLeft(create, 622);
+        Canvas.SetTop(create, 79);
         profileCanvas.Children.Add(create);
         _profileSigninCreateButton = create;
 
         var ghost = CreateGhostProfileVisual();
-        Canvas.SetLeft(ghost, 870);
-        Canvas.SetTop(ghost, 105);
+        Canvas.SetLeft(ghost, 875);
+        Canvas.SetTop(ghost, 91);
         profileCanvas.Children.Add(ghost);
 
         var footer = new StackPanel
@@ -160,37 +177,46 @@ public partial class MainWindow
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(84, 0, 0, 46)
+            Margin = new Thickness(84, 0, 0, 43)
         };
-        footer.Children.Add(CreateSigninPromptBadge("A", Color.FromRgb(71, 183, 43)));
+        footer.Children.Add(CreateSigninPromptBadge("A", Color.FromRgb(77, 184, 47)));
         footer.Children.Add(new TextBlock
         {
             Text = "Select",
-            Foreground = Brushes.White,
-            FontSize = 15,
+            Foreground = new SolidColorBrush(Color.FromRgb(76, 76, 76)),
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(7, 0, 18, 0)
+            Margin = new Thickness(7, 0, 17, 0)
         });
-        footer.Children.Add(CreateSigninPromptBadge("B", Color.FromRgb(205, 54, 45)));
+        footer.Children.Add(CreateSigninPromptBadge("B", Color.FromRgb(204, 55, 47)));
         footer.Children.Add(new TextBlock
         {
             Text = "Back",
-            Foreground = Brushes.White,
-            FontSize = 15,
+            Foreground = new SolidColorBrush(Color.FromRgb(76, 76, 76)),
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(7, 0, 0, 0)
         });
         root.Children.Add(footer);
 
-        root.Children.Add(new TextBlock
+        var tip = new StackPanel
         {
-            Text = "Tip: choose a profile to continue",
-            Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
-            FontSize = 13,
+            Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, 92, 47)
+            Margin = new Thickness(0, 0, 90, 43)
+        };
+        tip.Children.Add(new TextBlock
+        {
+            Text = "Tip: choose a profile",
+            Foreground = new SolidColorBrush(Color.FromRgb(103, 103, 103)),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center
         });
+        tip.Children.Add(CreateMicrophoneGlyph());
+        root.Children.Add(tip);
 
         root.IsVisibleChanged += (_, _) =>
         {
@@ -211,47 +237,48 @@ public partial class MainWindow
 
     private Button CreateCurrentProfileCard()
     {
-        var button = CreateSigninCardButton(315, 286);
-        var canvas = new Canvas { Width = 315, Height = 286 };
+        var button = CreateSigninCardButton(300, 282);
+        var canvas = new Canvas { Width = 300, Height = 282 };
 
         UIElement avatar = BuildSigninAvatar(false);
-        Canvas.SetLeft(avatar, 12);
-        Canvas.SetTop(avatar, 4);
+        Canvas.SetLeft(avatar, 4);
+        Canvas.SetTop(avatar, 1);
         canvas.Children.Add(avatar);
 
         var pictureBorder = new Border
         {
-            Width = 34,
-            Height = 34,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(130, 255, 255, 255)),
+            Width = 32,
+            Height = 32,
+            BorderBrush = new SolidColorBrush(Color.FromArgb(120, 255, 255, 255)),
             BorderThickness = new Thickness(1),
             Background = Brushes.Black,
             ClipToBounds = true
         };
         _profileSigninGamerPicture = new Image { Stretch = Stretch.UniformToFill };
         pictureBorder.Child = _profileSigninGamerPicture;
-        Canvas.SetLeft(pictureBorder, 150);
-        Canvas.SetTop(pictureBorder, 106);
+        Canvas.SetLeft(pictureBorder, 151);
+        Canvas.SetTop(pictureBorder, 98);
         canvas.Children.Add(pictureBorder);
 
         _profileSigninGamertag = new TextBlock
         {
             Foreground = Brushes.White,
             FontFamily = new FontFamily("Segoe UI Light"),
-            FontSize = 18
+            FontSize = 17
         };
-        Canvas.SetLeft(_profileSigninGamertag, 150);
-        Canvas.SetTop(_profileSigninGamertag, 142);
+        Canvas.SetLeft(_profileSigninGamertag, 151);
+        Canvas.SetTop(_profileSigninGamertag, 134);
         canvas.Children.Add(_profileSigninGamertag);
 
         _profileSigninScore = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromArgb(242, 255, 255, 255)),
-            FontSize = 14,
-            LineHeight = 20
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 13,
+            LineHeight = 19
         };
-        Canvas.SetLeft(_profileSigninScore, 150);
-        Canvas.SetTop(_profileSigninScore, 184);
+        Canvas.SetLeft(_profileSigninScore, 151);
+        Canvas.SetTop(_profileSigninScore, 178);
         canvas.Children.Add(_profileSigninScore);
 
         button.Content = canvas;
@@ -267,11 +294,13 @@ public partial class MainWindow
 
     private Button CreateCreateProfileCard()
     {
-        var button = CreateSigninCardButton(240, 250);
-        var canvas = new Canvas { Width = 240, Height = 250 };
+        var button = CreateSigninCardButton(235, 250);
+        var canvas = new Canvas { Width = 235, Height = 250 };
         UIElement avatar = BuildSigninAvatar(true);
-        Canvas.SetLeft(avatar, 4);
-        Canvas.SetTop(avatar, 2);
+        avatar.RenderTransformOrigin = new Point(0.5, 1.0);
+        avatar.RenderTransform = new ScaleTransform(0.88, 0.88);
+        Canvas.SetLeft(avatar, -4);
+        Canvas.SetTop(avatar, 16);
         canvas.Children.Add(avatar);
 
         var plus = new TextBlock
@@ -279,10 +308,10 @@ public partial class MainWindow
             Text = "+",
             Foreground = Brushes.White,
             FontFamily = new FontFamily("Segoe UI Light"),
-            FontSize = 42
+            FontSize = 36
         };
-        Canvas.SetLeft(plus, 132);
-        Canvas.SetTop(plus, 92);
+        Canvas.SetLeft(plus, 125);
+        Canvas.SetTop(plus, 78);
         canvas.Children.Add(plus);
 
         var create = new TextBlock
@@ -290,22 +319,23 @@ public partial class MainWindow
             Text = "Create\nProfile",
             Foreground = Brushes.White,
             FontFamily = new FontFamily("Segoe UI Light"),
-            FontSize = 27,
-            LineHeight = 31
+            FontSize = 25,
+            LineHeight = 28
         };
-        Canvas.SetLeft(create, 132);
-        Canvas.SetTop(create, 128);
+        Canvas.SetLeft(create, 125);
+        Canvas.SetTop(create, 112);
         canvas.Children.Add(create);
 
         var caption = new TextBlock
         {
             Text = "Want to make a new\nprofile?",
-            Foreground = new SolidColorBrush(Color.FromArgb(225, 255, 255, 255)),
-            FontSize = 13,
-            LineHeight = 17
+            Foreground = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 12,
+            LineHeight = 16
         };
-        Canvas.SetLeft(caption, 132);
-        Canvas.SetTop(caption, 196);
+        Canvas.SetLeft(caption, 125);
+        Canvas.SetTop(caption, 174);
         canvas.Children.Add(caption);
 
         button.Content = canvas;
@@ -315,8 +345,17 @@ public partial class MainWindow
 
     private FrameworkElement CreateGhostProfileVisual()
     {
-        var grid = new Grid { Width = 180, Height = 230, Opacity = 0.34, IsHitTestVisible = false };
-        grid.Children.Add(BuildSigninAvatar(true));
+        var grid = new Grid
+        {
+            Width = 170,
+            Height = 238,
+            Opacity = 0.28,
+            IsHitTestVisible = false
+        };
+        FrameworkElement avatar = BuildSigninAvatar(true);
+        avatar.RenderTransformOrigin = new Point(0.5, 1.0);
+        avatar.RenderTransform = new ScaleTransform(0.92, 0.92);
+        grid.Children.Add(avatar);
         return grid;
     }
 
@@ -333,13 +372,13 @@ public partial class MainWindow
             Tag = "ProfileMenuOption",
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
-            RenderTransformOrigin = new Point(0.5, 0.5),
-            RenderTransform = new ScaleTransform(0.92, 0.92),
-            Opacity = 0.72
+            RenderTransformOrigin = new Point(0.5, 0.62),
+            RenderTransform = new ScaleTransform(0.90, 0.90),
+            Opacity = 0.62
         };
 
-        button.GotKeyboardFocus += (_, _) => AnimateSigninCard(button, 1.08, 1.0);
-        button.LostKeyboardFocus += (_, _) => AnimateSigninCard(button, 0.92, 0.72);
+        button.GotKeyboardFocus += (_, _) => AnimateSigninCard(button, 1.06, 1.0);
+        button.LostKeyboardFocus += (_, _) => AnimateSigninCard(button, 0.90, 0.62);
         button.MouseEnter += (_, _) =>
         {
             if (button.IsEnabled)
@@ -359,53 +398,201 @@ public partial class MainWindow
         }
 
         var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-        transform.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(145)) { EasingFunction = ease });
-        transform.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(145)) { EasingFunction = ease });
+        transform.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(150)) { EasingFunction = ease });
+        transform.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(scale, TimeSpan.FromMilliseconds(150)) { EasingFunction = ease });
         button.BeginAnimation(OpacityProperty, new DoubleAnimation(opacity, TimeSpan.FromMilliseconds(120)));
     }
 
     private static FrameworkElement BuildSigninAvatar(bool ghost)
     {
-        var canvas = new Canvas { Width = 135, Height = 230, IsHitTestVisible = false };
-        Brush skin = ghost ? new SolidColorBrush(Color.FromRgb(222, 223, 223)) : new SolidColorBrush(Color.FromRgb(218, 171, 131));
-        Brush shirt = ghost ? new SolidColorBrush(Color.FromRgb(222, 223, 223)) : Brushes.WhiteSmoke;
-        Brush pants = ghost ? new SolidColorBrush(Color.FromRgb(190, 191, 191)) : new SolidColorBrush(Color.FromRgb(69, 67, 57));
-        Brush accent = ghost ? new SolidColorBrush(Color.FromRgb(201, 202, 202)) : new SolidColorBrush(Color.FromRgb(108, 185, 58));
+        var canvas = new Canvas { Width = 150, Height = 240, IsHitTestVisible = false };
 
-        var shadow = new Ellipse { Width = 90, Height = 18, Fill = new SolidColorBrush(Color.FromArgb(35, 0, 0, 0)) };
-        Canvas.SetLeft(shadow, 22); Canvas.SetTop(shadow, 207); canvas.Children.Add(shadow);
+        Color skinLight = ghost ? Color.FromRgb(232, 233, 233) : Color.FromRgb(238, 193, 153);
+        Color skinDark = ghost ? Color.FromRgb(190, 192, 192) : Color.FromRgb(190, 132, 96);
+        Color clothLight = ghost ? Color.FromRgb(229, 230, 230) : Color.FromRgb(252, 252, 248);
+        Color clothDark = ghost ? Color.FromRgb(194, 196, 196) : Color.FromRgb(205, 207, 200);
+        Color pantsLight = ghost ? Color.FromRgb(200, 201, 201) : Color.FromRgb(85, 82, 70);
+        Color pantsDark = ghost ? Color.FromRgb(171, 173, 173) : Color.FromRgb(53, 51, 45);
+        Color accentColor = ghost ? Color.FromRgb(199, 201, 201) : Color.FromRgb(99, 181, 55);
 
-        var head = new Ellipse { Width = 45, Height = 51, Fill = skin, Stroke = new SolidColorBrush(Color.FromArgb(36, 0, 0, 0)), StrokeThickness = 1 };
-        Canvas.SetLeft(head, 45); Canvas.SetTop(head, 8); canvas.Children.Add(head);
+        var shadow = new Ellipse
+        {
+            Width = 96,
+            Height = 17,
+            Fill = new RadialGradientBrush(
+                Color.FromArgb(60, 35, 35, 35),
+                Color.FromArgb(0, 35, 35, 35))
+        };
+        Canvas.SetLeft(shadow, 27);
+        Canvas.SetTop(shadow, 216);
+        canvas.Children.Add(shadow);
 
-        var torso = new Border { Width = 68, Height = 78, Background = shirt, CornerRadius = new CornerRadius(18, 18, 10, 10) };
-        Canvas.SetLeft(torso, 33); Canvas.SetTop(torso, 58); canvas.Children.Add(torso);
+        var neck = new Border
+        {
+            Width = 20,
+            Height = 18,
+            CornerRadius = new CornerRadius(8),
+            Background = MakeGradient(skinLight, skinDark)
+        };
+        Canvas.SetLeft(neck, 65);
+        Canvas.SetTop(neck, 54);
+        canvas.Children.Add(neck);
 
-        var chest = new Border { Width = 42, Height = 18, Background = accent, CornerRadius = new CornerRadius(8), Opacity = ghost ? 0.55 : 0.95 };
-        Canvas.SetLeft(chest, 46); Canvas.SetTop(chest, 75); canvas.Children.Add(chest);
+        var torso = new Border
+        {
+            Width = 76,
+            Height = 82,
+            CornerRadius = new CornerRadius(22, 22, 12, 12),
+            Background = MakeGradient(clothLight, clothDark),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)),
+            BorderThickness = new Thickness(1)
+        };
+        Canvas.SetLeft(torso, 37);
+        Canvas.SetTop(torso, 66);
+        canvas.Children.Add(torso);
 
-        var armLeft = new Border { Width = 17, Height = 74, Background = skin, CornerRadius = new CornerRadius(9), RenderTransform = new RotateTransform(12), RenderTransformOrigin = new Point(0.5, 0) };
-        Canvas.SetLeft(armLeft, 22); Canvas.SetTop(armLeft, 67); canvas.Children.Add(armLeft);
-        var armRight = new Border { Width = 17, Height = 74, Background = skin, CornerRadius = new CornerRadius(9), RenderTransform = new RotateTransform(-12), RenderTransformOrigin = new Point(0.5, 0) };
-        Canvas.SetLeft(armRight, 96); Canvas.SetTop(armRight, 67); canvas.Children.Add(armRight);
+        var leftArm = CreateAvatarLimb(18, 77, skinLight, skinDark, 10);
+        leftArm.RenderTransform = new RotateTransform(11, 9, 0);
+        Canvas.SetLeft(leftArm, 25);
+        Canvas.SetTop(leftArm, 72);
+        canvas.Children.Add(leftArm);
 
-        var legLeft = new Border { Width = 26, Height = 78, Background = pants, CornerRadius = new CornerRadius(8) };
-        Canvas.SetLeft(legLeft, 39); Canvas.SetTop(legLeft, 126); canvas.Children.Add(legLeft);
-        var legRight = new Border { Width = 26, Height = 78, Background = pants, CornerRadius = new CornerRadius(8) };
-        Canvas.SetLeft(legRight, 70); Canvas.SetTop(legRight, 126); canvas.Children.Add(legRight);
+        var rightArm = CreateAvatarLimb(18, 77, skinLight, skinDark, 10);
+        rightArm.RenderTransform = new RotateTransform(-11, 9, 0);
+        Canvas.SetLeft(rightArm, 108);
+        Canvas.SetTop(rightArm, 72);
+        canvas.Children.Add(rightArm);
 
-        var shoeLeft = new Ellipse { Width = 34, Height = 15, Fill = ghost ? pants : new SolidColorBrush(Color.FromRgb(45, 45, 43)) };
-        Canvas.SetLeft(shoeLeft, 32); Canvas.SetTop(shoeLeft, 198); canvas.Children.Add(shoeLeft);
-        var shoeRight = new Ellipse { Width = 34, Height = 15, Fill = ghost ? pants : new SolidColorBrush(Color.FromRgb(45, 45, 43)) };
-        Canvas.SetLeft(shoeRight, 69); Canvas.SetTop(shoeRight, 198); canvas.Children.Add(shoeRight);
+        var leftLeg = CreateAvatarLimb(29, 78, pantsLight, pantsDark, 9);
+        Canvas.SetLeft(leftLeg, 43);
+        Canvas.SetTop(leftLeg, 139);
+        canvas.Children.Add(leftLeg);
+
+        var rightLeg = CreateAvatarLimb(29, 78, pantsLight, pantsDark, 9);
+        Canvas.SetLeft(rightLeg, 78);
+        Canvas.SetTop(rightLeg, 139);
+        canvas.Children.Add(rightLeg);
+
+        var leftShoe = new Ellipse { Width = 38, Height = 17, Fill = MakeGradient(pantsLight, Color.FromRgb(38, 38, 37)) };
+        Canvas.SetLeft(leftShoe, 36);
+        Canvas.SetTop(leftShoe, 207);
+        canvas.Children.Add(leftShoe);
+        var rightShoe = new Ellipse { Width = 38, Height = 17, Fill = MakeGradient(pantsLight, Color.FromRgb(38, 38, 37)) };
+        Canvas.SetLeft(rightShoe, 76);
+        Canvas.SetTop(rightShoe, 207);
+        canvas.Children.Add(rightShoe);
+
+        var head = new Ellipse
+        {
+            Width = 51,
+            Height = 57,
+            Fill = new RadialGradientBrush
+            {
+                GradientOrigin = new Point(0.34, 0.28),
+                Center = new Point(0.45, 0.42),
+                RadiusX = 0.72,
+                RadiusY = 0.72,
+                GradientStops = new GradientStopCollection
+                {
+                    new GradientStop(skinLight, 0),
+                    new GradientStop(skinDark, 1)
+                }
+            },
+            Stroke = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0)),
+            StrokeThickness = 1
+        };
+        Canvas.SetLeft(head, 50);
+        Canvas.SetTop(head, 7);
+        canvas.Children.Add(head);
+
+        var leftEar = new Ellipse { Width = 7, Height = 13, Fill = MakeGradient(skinLight, skinDark) };
+        Canvas.SetLeft(leftEar, 47);
+        Canvas.SetTop(leftEar, 29);
+        canvas.Children.Add(leftEar);
+        var rightEar = new Ellipse { Width = 7, Height = 13, Fill = MakeGradient(skinLight, skinDark) };
+        Canvas.SetLeft(rightEar, 97);
+        Canvas.SetTop(rightEar, 29);
+        canvas.Children.Add(rightEar);
 
         if (!ghost)
         {
-            var xbox = new TextBlock { Text = "XBOX", Foreground = accent, FontWeight = FontWeights.Bold, FontSize = 11 };
-            Canvas.SetLeft(xbox, 49); Canvas.SetTop(xbox, 96); canvas.Children.Add(xbox);
+            var hair = new Border
+            {
+                Width = 44,
+                Height = 16,
+                CornerRadius = new CornerRadius(14, 14, 6, 6),
+                Background = MakeGradient(Color.FromRgb(90, 63, 43), Color.FromRgb(45, 32, 24))
+            };
+            Canvas.SetLeft(hair, 54);
+            Canvas.SetTop(hair, 8);
+            canvas.Children.Add(hair);
+
+            var leftEye = new Ellipse { Width = 5, Height = 3, Fill = new SolidColorBrush(Color.FromRgb(42, 42, 42)) };
+            Canvas.SetLeft(leftEye, 63);
+            Canvas.SetTop(leftEye, 34);
+            canvas.Children.Add(leftEye);
+            var rightEye = new Ellipse { Width = 5, Height = 3, Fill = new SolidColorBrush(Color.FromRgb(42, 42, 42)) };
+            Canvas.SetLeft(rightEye, 83);
+            Canvas.SetTop(rightEye, 34);
+            canvas.Children.Add(rightEye);
+
+            var mouth = new Border
+            {
+                Width = 14,
+                Height = 2,
+                CornerRadius = new CornerRadius(1),
+                Background = new SolidColorBrush(Color.FromArgb(120, 100, 55, 48))
+            };
+            Canvas.SetLeft(mouth, 69);
+            Canvas.SetTop(mouth, 49);
+            canvas.Children.Add(mouth);
+        }
+
+        var chestStripe = new Border
+        {
+            Width = 49,
+            Height = 18,
+            Background = new SolidColorBrush(accentColor),
+            CornerRadius = new CornerRadius(9),
+            Opacity = ghost ? 0.52 : 0.96
+        };
+        Canvas.SetLeft(chestStripe, 51);
+        Canvas.SetTop(chestStripe, 84);
+        canvas.Children.Add(chestStripe);
+
+        if (!ghost)
+        {
+            var xbox = new TextBlock
+            {
+                Text = "XBOX",
+                Foreground = new SolidColorBrush(accentColor),
+                FontWeight = FontWeights.Bold,
+                FontSize = 11
+            };
+            Canvas.SetLeft(xbox, 58);
+            Canvas.SetTop(xbox, 106);
+            canvas.Children.Add(xbox);
         }
 
         return canvas;
+    }
+
+    private static Border CreateAvatarLimb(double width, double height, Color light, Color dark, double radius)
+    {
+        return new Border
+        {
+            Width = width,
+            Height = height,
+            CornerRadius = new CornerRadius(radius),
+            Background = MakeGradient(light, dark),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(18, 0, 0, 0)),
+            BorderThickness = new Thickness(1)
+        };
+    }
+
+    private static Brush MakeGradient(Color light, Color dark)
+    {
+        return new LinearGradientBrush(light, dark, new Point(0.2, 0), new Point(0.8, 1));
     }
 
     private static Border CreateSigninPromptBadge(string text, Color color)
@@ -429,6 +616,39 @@ public partial class MainWindow
         };
     }
 
+    private static FrameworkElement CreateMicrophoneGlyph()
+    {
+        var canvas = new Canvas
+        {
+            Width = 16,
+            Height = 18,
+            Margin = new Thickness(7, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        var stroke = new SolidColorBrush(Color.FromRgb(102, 102, 102));
+        var capsule = new Border
+        {
+            Width = 7,
+            Height = 11,
+            CornerRadius = new CornerRadius(4),
+            BorderBrush = stroke,
+            BorderThickness = new Thickness(1.3)
+        };
+        Canvas.SetLeft(capsule, 4.5);
+        Canvas.SetTop(capsule, 0);
+        canvas.Children.Add(capsule);
+        var stem = new Border { Width = 1.3, Height = 5, Background = stroke };
+        Canvas.SetLeft(stem, 7.4);
+        Canvas.SetTop(stem, 10.5);
+        canvas.Children.Add(stem);
+        var foot = new Border { Width = 7, Height = 1.3, Background = stroke };
+        Canvas.SetLeft(foot, 4.5);
+        Canvas.SetTop(foot, 15);
+        canvas.Children.Add(foot);
+        return canvas;
+    }
+
     private void RefreshProfileSigninData()
     {
         if (_profileSigninGamertag != null)
@@ -437,7 +657,7 @@ public partial class MainWindow
         }
         if (_profileSigninScore != null)
         {
-            _profileSigninScore.Text = $"{_viewModel.Profile.Gamerscore:N0} G\nHard Drive";
+            _profileSigninScore.Text = $"{_viewModel.Profile.Gamerscore.ToString("N0", CultureInfo.InvariantCulture)} G\nHard Drive";
         }
         if (_profileSigninGamerPicture != null)
         {
