@@ -10,6 +10,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using XboxMetroLauncher.Input;
 
 namespace XboxMetroLauncher;
 
@@ -17,12 +18,15 @@ public partial class MainWindow
 {
     private bool _profileSigninInstalled;
     private bool _profileSigninShowingLegacyEditor;
+    private bool _profileSigninControllerCaptured;
+    private bool _profileSigninPreviousControllerInput;
     private Grid? _profileSigninLayer;
     private Button? _profileSigninPrimaryButton;
     private Button? _profileSigninCreateButton;
     private TextBlock? _profileSigninGamertag;
     private TextBlock? _profileSigninScore;
     private Image? _profileSigninGamerPicture;
+    private ControllerInputService? _profileSigninController;
     private readonly List<UIElement> _legacyProfileEditorChildren = new();
 
     internal void InstallProfileSigninScreen()
@@ -35,7 +39,17 @@ public partial class MainWindow
         _profileSigninInstalled = true;
         BuildProfileSigninScreen();
         _viewModel.PropertyChanged += ProfileSigninOnViewModelPropertyChanged;
-        Closed += (_, _) => _viewModel.PropertyChanged -= ProfileSigninOnViewModelPropertyChanged;
+        _profileSigninController = new ControllerInputService(
+            HandleProfileSigninControllerAction,
+            () => _viewModel.IsProfileEditorOpen && !_profileSigninShowingLegacyEditor && IsVisible && IsActive);
+        _profileSigninController.Start();
+        Closed += (_, _) =>
+        {
+            _viewModel.PropertyChanged -= ProfileSigninOnViewModelPropertyChanged;
+            RestoreProfileSigninControllerCapture();
+            _profileSigninController?.Dispose();
+            _profileSigninController = null;
+        };
     }
 
     private void BuildProfileSigninScreen()
@@ -462,9 +476,74 @@ public partial class MainWindow
         }
     }
 
+    private void CaptureProfileSigninController()
+    {
+        if (_profileSigninControllerCaptured)
+        {
+            return;
+        }
+
+        _profileSigninControllerCaptured = true;
+        _profileSigninPreviousControllerInput = _viewModel.Settings.EnableControllerInput;
+        if (_profileSigninPreviousControllerInput)
+        {
+            _viewModel.Settings.EnableControllerInput = false;
+        }
+    }
+
+    private void RestoreProfileSigninControllerCapture()
+    {
+        if (!_profileSigninControllerCaptured)
+        {
+            return;
+        }
+
+        _profileSigninControllerCaptured = false;
+        if (_profileSigninPreviousControllerInput)
+        {
+            _viewModel.Settings.EnableControllerInput = true;
+        }
+        _profileSigninPreviousControllerInput = false;
+    }
+
+    private void HandleProfileSigninControllerAction(DashboardInputAction action)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke((Action)(() => HandleProfileSigninControllerAction(action)), DispatcherPriority.Input);
+            return;
+        }
+        if (!_viewModel.IsProfileEditorOpen || _profileSigninShowingLegacyEditor)
+        {
+            return;
+        }
+
+        Button? focused = Keyboard.FocusedElement as Button;
+        if (action is DashboardInputAction.MoveLeft or DashboardInputAction.MoveUp)
+        {
+            (_profileSigninPrimaryButton ?? focused)?.Focus();
+            return;
+        }
+        if (action is DashboardInputAction.MoveRight or DashboardInputAction.MoveDown)
+        {
+            (_profileSigninCreateButton ?? focused)?.Focus();
+            return;
+        }
+        if (action == DashboardInputAction.Activate)
+        {
+            (focused ?? _profileSigninPrimaryButton)?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            return;
+        }
+        if (action == DashboardInputAction.Back && _viewModel.CloseProfileEditorCommand.CanExecute(null))
+        {
+            _viewModel.CloseProfileEditorCommand.Execute(null);
+        }
+    }
+
     private void ShowLegacyProfileEditorFromSignin()
     {
         _profileSigninShowingLegacyEditor = true;
+        RestoreProfileSigninControllerCapture();
         if (_profileSigninLayer != null)
         {
             _profileSigninLayer.Visibility = Visibility.Collapsed;
@@ -510,12 +589,14 @@ public partial class MainWindow
             if (!_profileSigninShowingLegacyEditor)
             {
                 ResetProfileSigninScreen();
+                CaptureProfileSigninController();
                 RefreshProfileSigninData();
                 Dispatcher.BeginInvoke((Action)(() => _profileSigninPrimaryButton?.Focus()), DispatcherPriority.Input);
             }
         }
         else
         {
+            RestoreProfileSigninControllerCapture();
             ResetProfileSigninScreen();
         }
     }
