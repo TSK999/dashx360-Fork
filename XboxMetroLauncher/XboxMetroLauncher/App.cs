@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,9 +6,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
-using XboxMetroLauncher.Services;
 using XboxMetroLauncher.Utilities;
-using XboxMetroLauncher.Views;
 
 namespace XboxMetroLauncher;
 
@@ -19,18 +16,18 @@ public partial class App : Application
     private bool _ownsMutex;
     private FileStream? _dataLease;
 
-	protected override void OnStartup(StartupEventArgs e)
-	{
-		DispatcherUnhandledException += OnDispatcherUnhandledException;
-		AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-		{
-			LogException(args.ExceptionObject as Exception, "AppDomain");
-		};
-		TaskScheduler.UnobservedTaskException += (_, args) =>
-		{
-			LogException(args.Exception, "TaskScheduler");
-			args.SetObserved();
-		};
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            LogException(args.ExceptionObject as Exception, "AppDomain");
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            LogException(args.Exception, "TaskScheduler");
+            args.SetObserved();
+        };
         try
         {
             var root = AppPaths.UserDataFolder;
@@ -38,35 +35,21 @@ public partial class App : Application
             _instanceMutex = new Mutex(false, "Local\\DashX360-" + key);
             try { _ownsMutex = _instanceMutex.WaitOne(0); }
             catch (AbandonedMutexException) { _ownsMutex = true; }
-            if (!_ownsMutex) { MessageBox.Show("DashX360 is already running with this data folder.", "DashX360"); Shutdown(); return; }
+            if (!_ownsMutex)
+            {
+                MessageBox.Show("DashX360 is already running with this data folder.", "DashX360");
+                Shutdown();
+                return;
+            }
+
             _dataLease = DataDirectoryLease.Acquire(root);
             Directory.CreateDirectory(AppPaths.LogsFolder);
             DataTransaction.Recover(root);
             AppPaths.MigrateMutableAssets();
             base.OnStartup(e);
 
-            var store = new JsonStore(root);
-            var setupService = new FirstRunSetupService(store);
-            bool forceSetup = e.Args.Any(arg => string.Equals(arg, "--setup", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(arg, "--first-run", StringComparison.OrdinalIgnoreCase));
-
-            if (forceSetup || !setupService.IsCompleted())
-            {
-                ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                var setupWindow = new FirstRunSetupWindow(
-                    setupService,
-                    new JsonGameLibraryService(store),
-                    new SteamLibraryScannerService(),
-                    new ProfileService(store));
-
-                bool? result = setupWindow.ShowDialog();
-                if (result != true)
-                {
-                    Shutdown();
-                    return;
-                }
-            }
-
+            // First-run setup is hosted by MainWindow so the dashboard shell, boot
+            // animation, scaling and input stack stay active for the whole launch.
             MainWindow = new MainWindow();
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow.Show();
@@ -77,7 +60,7 @@ public partial class App : Application
             MessageBox.Show("DashX360 could not start: " + ex.Message, "DashX360");
             Shutdown(1);
         }
-	}
+    }
 
     protected override void OnExit(ExitEventArgs e)
     {
@@ -87,31 +70,30 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-	private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
-	{
-		LogException(e.Exception, "Dispatcher");
-		MessageBox.Show("DashX360 encountered an unexpected error and must close. Your saved data is retained.", "DashX360");
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        LogException(e.Exception, "Dispatcher");
+        MessageBox.Show("DashX360 encountered an unexpected error and must close. Your saved data is retained.", "DashX360");
         e.Handled = true;
         Current.Shutdown(1);
-	}
+    }
 
-	internal static void LogException(Exception? exception, string source)
-	{
-		if (exception == null)
-		{
-			return;
-		}
+    internal static void LogException(Exception? exception, string source)
+    {
+        if (exception == null)
+        {
+            return;
+        }
 
-		try
-		{
-			Directory.CreateDirectory(AppPaths.LogsFolder);
+        try
+        {
+            Directory.CreateDirectory(AppPaths.LogsFolder);
             File.AppendAllText(
-				Path.Combine(AppPaths.LogsFolder, "crash.log"),
-				$"[{DateTimeOffset.Now:u}] {source}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
-		}
-		catch
-		{
-		}
-	}
-
+                Path.Combine(AppPaths.LogsFolder, "crash.log"),
+                $"[{DateTimeOffset.Now:u}] {source}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+        }
+    }
 }
